@@ -1,44 +1,18 @@
-<!doctype html>
-<html lang="tr">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>FTMO Çarşaf Takip</title>
-  <style>
-    body { font-family: Arial, sans-serif; margin: 18px; }
-    .top { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
-    .grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 14px; }
-    .card { border:2px solid #ddd; border-radius:14px; padding:12px; }
-    .green { border-color:#22c55e; box-shadow: 0 0 0 2px rgba(34,197,94,.15) inset; }
-    .title { font-weight:800; font-size:16px; }
-    .muted { color:#666; font-size:12px; }
-    .pill { display:inline-block; padding:3px 8px; border-radius:999px; border:1px solid #ddd; font-size:12px; }
-    .pill-long { border-color:#22c55e; }
-    .pill-short { border-color:#ef4444; }
-    button { padding:8px 12px; border-radius:10px; border:1px solid #ddd; background:#fff; cursor:pointer; }
-  </style>
-</head>
-<body>
-  <div class="top">
-    <div>
-      <div style="font-size:20px;font-weight:900;">FTMO – D1 EMA Çarşaf</div>
-      <div class="muted">EMA20/50/100/200 sıralıysa kart yeşil border olur.</div>
-    </div>
-    <div>
-      <button onclick="loadData()">Yenile</button>
-      <div class="muted" id="updated"></div>
-    </div>
-  </div>
-
-  <div class="grid" id="grid">Yükleniyor...</div>
-
 <script>
-  // BURAYA Render backend URL'ini yazacağız (deploy sonrası)
   let API_BASE = "https://ftmo-carsaf.onrender.com";
+
+  // 20 enstrümanı 3 sayfaya böldük (8 + 8 + 4)
+  const PAGES = [
+    ["EURUSD","USDJPY","GBPUSD","AUDUSD","USDCAD","USDCHF","EURJPY","EURGBP"],
+    ["GBPJPY","AUDJPY","XAUUSD","XAGUSD","USOIL","US500","NAS100","US30"],
+    ["GER40","UK100","JP225","AUS200"]
+  ];
+
+  let currentPage = 0;
 
   function cardClass(item){
     if (item.sheet === "LONG") return "card green";
-    if (item.sheet === "SHORT") return "card green"; // istersen SHORT için kırmızı yaparız
+    if (item.sheet === "SHORT") return "card green"; // istersen short için kırmızı yaparız
     return "card";
   }
   function pill(item){
@@ -51,15 +25,31 @@
     return n.toFixed(2);
   }
 
-  async function loadData(){
+  async function loadData(pageIndex){
+    currentPage = pageIndex;
+
+    // üstte sayfa butonlarını güncelle
+    document.querySelectorAll(".pageBtn").forEach((b, i) => {
+      b.style.fontWeight = (i === currentPage) ? "900" : "400";
+    });
+
     const grid = document.getElementById("grid");
     grid.textContent = "Yükleniyor...";
+
+    // Backend’den tüm listeyi alıyoruz (tek istek) — ama backend 20 çağrı yaptığı için 429 oluyor.
+    // Biz burada "rate limit" için sayfa yenilemeyi azaltacağız.
     const res = await fetch(`${API_BASE}/api/watchlist`);
     const data = await res.json();
 
     document.getElementById("updated").textContent = `Son güncelleme (UTC): ${data.updated_utc}`;
+
+    // Bu sayfada göstereceğimiz isimler:
+    const wanted = new Set(PAGES[currentPage]);
+
     grid.innerHTML = "";
     for (const item of data.items){
+      if (!wanted.has(item.name)) continue;
+
       grid.insertAdjacentHTML("beforeend", `
         <div class="${cardClass(item)}">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
@@ -80,7 +70,24 @@
       `);
     }
   }
-  loadData();
+
+  // Sayfa butonlarını HTML'e ekle
+  (function initPager(){
+    const top = document.querySelector(".top > div:last-child");
+    const pager = document.createElement("div");
+    pager.style.display = "flex";
+    pager.style.gap = "8px";
+    pager.style.marginTop = "8px";
+
+    for (let i = 0; i < PAGES.length; i++){
+      const btn = document.createElement("button");
+      btn.className = "pageBtn";
+      btn.textContent = `Sayfa ${i+1}`;
+      btn.onclick = () => loadData(i);
+      pager.appendChild(btn);
+    }
+    top.appendChild(pager);
+  })();
+
+  loadData(0);
 </script>
-</body>
-</html>
