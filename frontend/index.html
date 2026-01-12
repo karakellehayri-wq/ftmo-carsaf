@@ -8,12 +8,12 @@
     html, body { height: 100%; }
     body { font-family: Arial, sans-serif; margin: 18px; }
 
-    .top {
-      display:flex; justify-content:space-between; align-items:flex-start;
-      gap:12px; flex-wrap:wrap;
-    }
+    .top { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; }
+    .pager { display:flex; gap:8px; margin-top:8px; flex-wrap:wrap; }
+    button { padding:8px 12px; border-radius:10px; border:1px solid #ddd; background:#fff; cursor:pointer; }
+    .active { font-weight:900; }
 
-    /* 4 kart ekranı eşit doldursun: 2x2 */
+    /* 2x2 full screen */
     .grid {
       display:grid;
       grid-template-columns: repeat(2, 1fr);
@@ -31,130 +31,83 @@
       display:flex;
       flex-direction:column;
       overflow:hidden;
-      min-height: 0;
-      position: relative; /* buton için */
+      min-height:0;
+      position:relative;
     }
 
     .green { border-color:#22c55e; box-shadow: 0 0 0 2px rgba(34,197,94,.15) inset; }
-    .title { font-weight:800; font-size:16px; }
+    .title { font-weight:900; font-size:16px; }
     .muted { color:#666; font-size:12px; }
+
     .pill { display:inline-block; padding:3px 8px; border-radius:999px; border:1px solid #ddd; font-size:12px; }
     .pill-long { border-color:#22c55e; }
     .pill-short { border-color:#ef4444; }
 
-    button { padding:8px 12px; border-radius:10px; border:1px solid #ddd; background:#fff; cursor:pointer; }
-    .pager { display:flex; gap:8px; margin-top:8px; flex-wrap:wrap; }
-    .active { font-weight:900; }
-
     .row { display:flex; justify-content:space-between; align-items:center; gap:8px; }
 
-    /* chart alanı kartın kalanını doldursun */
-    .chartWrap {
-      margin-top:10px;
-      border:1px solid #eee;
-      border-radius:12px;
-      overflow:hidden;
-      flex: 1;
-      min-height: 0;
-      background:#fff;
-    }
-    iframe { display:block; width:100%; height:100%; border:0; }
-
-    /* Kart içi büyütme butonu */
     .expandBtn{
       position:absolute;
-      top:10px;
-      right:10px;
-      width:34px;
-      height:34px;
+      top:10px; right:10px;
+      width:34px; height:34px;
       border-radius:10px;
       border:1px solid #ddd;
       background:#fff;
       cursor:pointer;
-      display:flex;
-      align-items:center;
-      justify-content:center;
+      display:flex; align-items:center; justify-content:center;
       font-size:16px;
-      line-height:1;
-      opacity:0.95;
     }
-    .expandBtn:hover{ opacity:1; }
 
-    /* Modal (popup) */
+    .chartArea { margin-top:10px; flex:1; min-height:0; display:flex; flex-direction:column; gap:8px; }
+    .priceChart { flex:1; min-height:0; border:1px solid #eee; border-radius:12px; overflow:hidden; }
+    .macdChart { height:110px; border:1px solid #eee; border-radius:12px; overflow:hidden; }
+
+    /* Modal */
     .modalOverlay{
-      position:fixed;
-      inset:0;
-      background:rgba(0,0,0,0.55);
+      position:fixed; inset:0;
+      background:rgba(0,0,0,.55);
       display:none;
-      align-items:center;
-      justify-content:center;
+      align-items:center; justify-content:center;
       padding:16px;
       z-index:9999;
     }
     .modal{
-      width:min(1200px, 98vw);
-      height:min(720px, 96vh);
+      width:min(1300px, 98vw);
+      height:min(820px, 96vh);
       background:#fff;
       border-radius:16px;
       overflow:hidden;
-      display:flex;
-      flex-direction:column;
+      display:flex; flex-direction:column;
       border:1px solid #ddd;
     }
     .modalHeader{
       padding:10px 12px;
-      display:flex;
-      justify-content:space-between;
-      align-items:center;
-      gap:12px;
+      display:flex; justify-content:space-between; align-items:center;
       border-bottom:1px solid #eee;
     }
-    .modalTitle{ font-weight:900; }
     .modalClose{
-      width:40px;
-      height:36px;
+      width:40px; height:36px;
       border-radius:12px;
       border:1px solid #ddd;
       background:#fff;
       cursor:pointer;
       font-size:18px;
     }
-    .modalBody{
-      padding:12px;
-      display:flex;
-      flex-direction:column;
-      gap:10px;
-      flex:1;
-      min-height:0;
-    }
-    .modalInfo{
-      display:flex;
-      justify-content:space-between;
-      align-items:flex-start;
-      gap:10px;
-      flex-wrap:wrap;
-    }
-    .modalChart{
-      flex:1;
-      min-height:0;
-      border:1px solid #eee;
-      border-radius:14px;
-      overflow:hidden;
-    }
-    .modalChart iframe{ width:100%; height:100%; }
-    .linkRow a{ color:#444; font-size:12px; }
+    .modalBody{ padding:12px; flex:1; min-height:0; display:flex; flex-direction:column; gap:10px; }
+    .modalCharts{ flex:1; min-height:0; display:flex; flex-direction:column; gap:10px; }
+    .modalPrice{ flex:1; min-height:0; border:1px solid #eee; border-radius:14px; overflow:hidden; }
+    .modalMacd{ height:160px; border:1px solid #eee; border-radius:14px; overflow:hidden; }
   </style>
+
+  <!-- Lightweight Charts CDN -->
+  <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 
 <body>
   <div class="top">
     <div>
       <div style="font-size:20px;font-weight:900;">FTMO – D1 EMA Çarşaf</div>
-      <div class="muted">
-        4 kart = ekranı tam doldurur. TradingView mum + MACD + volume kapalı. Her kartta ⤢ ile büyüt.
-      </div>
+      <div class="muted">Mum + EMA20/50/100/200 çizgileri (grafikte). ⤢ ile tam ekran.</div>
     </div>
-
     <div>
       <div class="pager" id="pager"></div>
       <div class="muted" id="updated"></div>
@@ -165,28 +118,28 @@
 
   <!-- Modal -->
   <div class="modalOverlay" id="modalOverlay" onclick="overlayClick(event)">
-    <div class="modal" role="dialog" aria-modal="true" aria-label="Grafik">
+    <div class="modal" role="dialog" aria-modal="true">
       <div class="modalHeader">
         <div>
-          <div class="modalTitle" id="modalTitle">—</div>
+          <div class="title" id="modalTitle">—</div>
           <div class="muted" id="modalSub">—</div>
         </div>
-        <button class="modalClose" onclick="closeModal()" aria-label="Kapat">✕</button>
+        <button class="modalClose" onclick="closeModal()">✕</button>
       </div>
-
       <div class="modalBody">
-        <div class="modalInfo" id="modalInfo"></div>
-        <div class="modalChart" id="modalChart"></div>
-        <div class="linkRow" id="modalLink"></div>
+        <div class="muted" id="modalInfo"></div>
+        <div class="modalCharts">
+          <div class="modalPrice" id="modalPrice"></div>
+          <div class="modalMacd" id="modalMacd"></div>
+        </div>
       </div>
     </div>
   </div>
 
 <script>
-  // 🔗 Backend URL
-  let API_BASE = "https://ftmo-carsaf.onrender.com";
+  const API_BASE = "https://ftmo-carsaf.onrender.com";
 
-  // ✅ 5 sayfa x 4 enstrüman (backend ile aynı)
+  // backend ile aynı 5 sayfa
   const PAGES = [
     ["EURUSD","USDJPY","GBPUSD","AUDUSD"],
     ["USDCAD","USDCHF","EURJPY","EURGBP"],
@@ -197,150 +150,114 @@
 
   let currentPage = 0;
 
-  // TradingView sembol eşlemesi
-  const TV_SYMBOL = {
-    "EURUSD": "FX:EURUSD",
-    "USDJPY": "FX:USDJPY",
-    "GBPUSD": "FX:GBPUSD",
-    "AUDUSD": "FX:AUDUSD",
-    "USDCAD": "FX:USDCAD",
-    "USDCHF": "FX:USDCHF",
-    "EURJPY": "FX:EURJPY",
-    "EURGBP": "FX:EURGBP",
-    "GBPJPY": "FX:GBPJPY",
-    "AUDJPY": "FX:AUDJPY",
-
-    "XAUUSD": "OANDA:XAUUSD",
-    "XAGUSD": "OANDA:XAGUSD",
-
-    "USOIL": "TVC:USOIL",
-    "US500": "TVC:SPX",
-    "NAS100": "TVC:NDX",
-    "US30": "TVC:DJI",
-    "GER40": "TVC:DEU40",
-    "UK100": "TVC:UKX",
-    "JP225": "TVC:NI225",
-    "AUS200": "TVC:AU200"
-  };
+  const charts = new Map(); // key: containerId -> { chart, series... }
 
   function pill(item){
     if (item.sheet === "LONG") return `<span class="pill pill-long">ÇARŞAF LONG</span>`;
     if (item.sheet === "SHORT") return `<span class="pill pill-short">ÇARŞAF SHORT</span>`;
     return `<span class="pill">NONE</span>`;
   }
-
   function cardClass(item){
-    if (item.sheet === "LONG") return "card green";
-    if (item.sheet === "SHORT") return "card green";
+    if (item.sheet === "LONG" || item.sheet === "SHORT") return "card green";
     return "card";
   }
-
   function fmt(n){
     if (typeof n !== "number") return "-";
     return n.toFixed(2);
   }
 
-  // TradingView embed: MACD açık, volume kapalı
-  function tvEmbedUrl(name){
-    const sym = TV_SYMBOL[name];
-    if (!sym) return null;
-
-    const params = new URLSearchParams({
-      symbol: sym,
-      interval: "D",
-      style: "1",
-      theme: "light",
-      hide_top_toolbar: "1",
-      hide_side_toolbar: "1",
-      allow_symbol_change: "0",
-      studies: "MACD@tv-basicstudies",
-      hide_volume: "1",
-      withdateranges: "0",
-      saveimage: "0",
-      details: "0",
-      hotlist: "0",
-      calendar: "0",
-      locale: "tr"
-    });
-
-    return `https://s.tradingview.com/widgetembed/?${params.toString()}`;
-  }
-
-  function tvChartLink(name){
-    const sym = TV_SYMBOL[name];
-    if (!sym) return null;
-    return `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(sym)}`;
-  }
-
-  function chartIframeHtml(name){
-    const url = tvEmbedUrl(name);
-    if (!url) return `<div class="muted">Mini chart yok</div>`;
-    return `<iframe src="${url}" loading="lazy"></iframe>`;
-  }
-
   function renderPager(){
     const pager = document.getElementById("pager");
     pager.innerHTML = "";
-
-    for (let i = 0; i < PAGES.length; i++){
+    for (let i=0;i<PAGES.length;i++){
       const b = document.createElement("button");
       b.textContent = `Sayfa ${i+1}`;
-      if (i === currentPage) b.classList.add("active");
+      if (i===currentPage) b.classList.add("active");
       b.onclick = () => loadData(i);
       pager.appendChild(b);
     }
-
     const r = document.createElement("button");
     r.textContent = "Yenile";
     r.onclick = () => loadData(currentPage);
     pager.appendChild(r);
   }
 
-  // Modal kontrol
+  function buildChart(priceDiv, macdDiv, item){
+    // cleanup if exists
+    priceDiv.innerHTML = "";
+    macdDiv.innerHTML = "";
+
+    const priceChart = LightweightCharts.createChart(priceDiv, {
+      layout: { background: { type: 'solid', color: '#ffffff' }, textColor: '#222' },
+      rightPriceScale: { borderVisible: false },
+      timeScale: { borderVisible: false },
+      grid: { vertLines: { visible: false }, horzLines: { visible: false } },
+      crosshair: { mode: 1 },
+    });
+
+    const candleSeries = priceChart.addCandlestickSeries();
+    candleSeries.setData(item.candles || []);
+
+    // EMA line series
+    const ema20 = priceChart.addLineSeries({ lineWidth: 2 });
+    const ema50 = priceChart.addLineSeries({ lineWidth: 2 });
+    const ema100 = priceChart.addLineSeries({ lineWidth: 2 });
+    const ema200 = priceChart.addLineSeries({ lineWidth: 2 });
+
+    ema20.setData((item.ema_lines?.ema20) || []);
+    ema50.setData((item.ema_lines?.ema50) || []);
+    ema100.setData((item.ema_lines?.ema100) || []);
+    ema200.setData((item.ema_lines?.ema200) || []);
+
+    priceChart.timeScale().fitContent();
+
+    // MACD histogram (alt chart)
+    const macdChart = LightweightCharts.createChart(macdDiv, {
+      layout: { background: { type: 'solid', color: '#ffffff' }, textColor: '#222' },
+      rightPriceScale: { borderVisible: false },
+      timeScale: { borderVisible: false, visible: false }, // küçükte time axis gizle
+      grid: { vertLines: { visible: false }, horzLines: { visible: false } },
+      crosshair: { mode: 0 },
+    });
+
+    const histSeries = macdChart.addHistogramSeries();
+    histSeries.setData((item.macd_hist || []).map(x => ({ time: x.time, value: x.value })));
+    macdChart.timeScale().fitContent();
+
+    // resize observer
+    const ro = new ResizeObserver(() => {
+      priceChart.applyOptions({ width: priceDiv.clientWidth, height: priceDiv.clientHeight });
+      macdChart.applyOptions({ width: macdDiv.clientWidth, height: macdDiv.clientHeight });
+    });
+    ro.observe(priceDiv);
+    ro.observe(macdDiv);
+  }
+
+  // Modal
   function openModal(item){
+    document.getElementById("modalTitle").textContent = item.name;
+    document.getElementById("modalSub").textContent = `${item.symbol} • ${item.type}`;
+    document.getElementById("modalInfo").innerHTML = item.ok ? `
+      ${pill(item)} | Close: <b>${fmt(item.last_close)}</b>
+      | EMA20: ${fmt(item.ema20)} • EMA50: ${fmt(item.ema50)} • EMA100: ${fmt(item.ema100)} • EMA200: ${fmt(item.ema200)}
+    ` : `<span style="color:#b91c1c;">Veri/Hata:</span> ${item.error || ""}`;
+
     const overlay = document.getElementById("modalOverlay");
-    const title = document.getElementById("modalTitle");
-    const sub = document.getElementById("modalSub");
-    const info = document.getElementById("modalInfo");
-    const chart = document.getElementById("modalChart");
-    const link = document.getElementById("modalLink");
-
-    title.textContent = item.name;
-    sub.textContent = `${item.symbol} • ${item.type}`;
-
-    info.innerHTML = item.ok ? `
-      <div>
-        <div><b>${pill(item)}</b></div>
-        <div class="muted">Close: ${fmt(item.last_close)}</div>
-        <div class="muted">EMA20: ${fmt(item.ema20)} | EMA50: ${fmt(item.ema50)}</div>
-        <div class="muted">EMA100: ${fmt(item.ema100)} | EMA200: ${fmt(item.ema200)}</div>
-      </div>
-    ` : `
-      <div style="color:#b91c1c;">Veri/Hata</div>
-      <div class="muted">${item.error || item.reason || ""}</div>
-    `;
-
-    chart.innerHTML = chartIframeHtml(item.name);
-
-    const tvLink = tvChartLink(item.name);
-    link.innerHTML = tvLink ? `<a href="${tvLink}" target="_blank" rel="noreferrer">TradingView’de aç</a>` : "";
-
     overlay.style.display = "flex";
     document.body.style.overflow = "hidden";
-  }
 
+    // build modal charts
+    buildChart(document.getElementById("modalPrice"), document.getElementById("modalMacd"), item);
+  }
   function closeModal(){
-    const overlay = document.getElementById("modalOverlay");
-    overlay.style.display = "none";
-    document.getElementById("modalChart").innerHTML = "";
+    document.getElementById("modalOverlay").style.display = "none";
+    document.getElementById("modalPrice").innerHTML = "";
+    document.getElementById("modalMacd").innerHTML = "";
     document.body.style.overflow = "auto";
   }
-
   function overlayClick(e){
-    // Sadece arka siyaha tıklayınca kapansın
     if (e.target && e.target.id === "modalOverlay") closeModal();
   }
-
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") closeModal();
   });
@@ -359,11 +276,13 @@
       document.getElementById("updated").textContent =
         `Son güncelleme (UTC): ${data.updated_utc} | Sayfa: ${data.page}`;
 
-      const wanted = new Set(PAGES[currentPage]);
-      const items = (data.items || []).filter(x => wanted.has(x.name));
+      const items = data.items || [];
 
       grid.innerHTML = "";
       for (const item of items){
+        const priceId = `price_${item.name}`;
+        const macdId = `macd_${item.name}`;
+
         grid.insertAdjacentHTML("beforeend", `
           <div class="${cardClass(item)}">
             <button class="expandBtn" title="Büyüt" aria-label="Büyüt" data-name="${item.name}">⤢</button>
@@ -382,33 +301,29 @@
               </div>
             ` : `
               <div style="margin-top:8px;color:#b91c1c">Veri/Hata</div>
-              <div class="muted">${item.error || item.reason || ""}</div>
+              <div class="muted">${item.error || ""}</div>
             `}
 
-            <div class="chartWrap">
-              ${chartIframeHtml(item.name)}
-            </div>
-
-            <div style="margin-top:6px">
-              ${tvChartLink(item.name) ? `<a class="muted" href="${tvChartLink(item.name)}" target="_blank" rel="noreferrer">TradingView’de aç</a>` : ""}
+            <div class="chartArea">
+              <div class="priceChart" id="${priceId}"></div>
+              <div class="macdChart" id="${macdId}"></div>
             </div>
           </div>
         `);
+
+        if (item.ok){
+          const priceDiv = document.getElementById(priceId);
+          const macdDiv = document.getElementById(macdId);
+          buildChart(priceDiv, macdDiv, item);
+        }
       }
 
-      // Butonlara tıklama eventlerini bağla
-      // (HTML string ile bastığımız için sonra bağlamak lazım)
-      const cards = Array.from(document.querySelectorAll(".card"));
-      for (const card of cards){
-        const btn = card.querySelector(".expandBtn");
-        if (!btn) continue;
+      // expand buttons
+      const btns = Array.from(document.querySelectorAll(".expandBtn"));
+      for (const btn of btns){
         const nm = btn.getAttribute("data-name");
         const found = items.find(x => x.name === nm);
         btn.onclick = () => openModal(found);
-      }
-
-      if (!grid.innerHTML.trim()) {
-        grid.textContent = "Bu sayfada veri yok.";
       }
     } catch (e) {
       grid.innerHTML = `<div style="color:#b91c1c">Hata: ${e}</div>`;
