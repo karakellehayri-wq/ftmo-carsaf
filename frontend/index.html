@@ -295,16 +295,19 @@
       crosshair: { mode: 0 },
     });
 
-    const kSeries = stochChart.addSeries(LightweightCharts.LineSeries, {
-      lineWidth: 2,
+      const kSeries = stochChart.addSeries(LightweightCharts.LineSeries, {
+      lineWidth: 1,              // ✅ inceldi
+      color: "#2563eb",          // ✅ %K (mavi)
       priceLineVisible: false,
       lastValueVisible: false,
     });
-    const dSeries = stochChart.addSeries(LightweightCharts.LineSeries, {
-      lineWidth: 2,
+      const dSeries = stochChart.addSeries(LightweightCharts.LineSeries, {
+      lineWidth: 1,              // ✅ inceldi
+      color: "#f59e0b",          // ✅ %D (turuncu)
       priceLineVisible: false,
       lastValueVisible: false,
     });
+
 
     kSeries.setData(item.stoch?.k || []);
     dSeries.setData(item.stoch?.d || []);
