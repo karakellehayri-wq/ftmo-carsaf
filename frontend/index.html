@@ -238,11 +238,17 @@
     const candleSeries = priceChart.addSeries(LightweightCharts.CandlestickSeries, {});
     candleSeries.setData(item.candles || []);
 
-    // EMA çizgileri ince
-    const ema20  = priceChart.addSeries(LightweightCharts.LineSeries, { lineWidth: 1 });
-    const ema50  = priceChart.addSeries(LightweightCharts.LineSeries, { lineWidth: 1 });
-    const ema100 = priceChart.addSeries(LightweightCharts.LineSeries, { lineWidth: 1 });
-    const ema200 = priceChart.addSeries(LightweightCharts.LineSeries, { lineWidth: 1 });
+    const emaCommon = {
+    lineWidth: 1,
+    priceLineVisible: false,  // ✅ nokta nokta yatay çizgi kapalı
+    lastValueVisible: false,  // ✅ sağdaki fiyat etiketi kapalı
+};
+
+    const ema20  = priceChart.addSeries(LightweightCharts.LineSeries, emaCommon);
+    const ema50  = priceChart.addSeries(LightweightCharts.LineSeries, emaCommon);
+    const ema100 = priceChart.addSeries(LightweightCharts.LineSeries, emaCommon);
+    const ema200 = priceChart.addSeries(LightweightCharts.LineSeries, emaCommon);
+
 
     ema20.setData(item.ema_lines?.ema20 || []);
     ema50.setData(item.ema_lines?.ema50 || []);
