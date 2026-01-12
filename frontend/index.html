@@ -98,7 +98,7 @@
     .modalMacd{ height:160px; border:1px solid #eee; border-radius:14px; overflow:hidden; }
   </style>
 
-  <!-- Lightweight Charts CDN -->
+  <!-- Lightweight Charts (v5) -->
   <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 
@@ -139,7 +139,6 @@
 <script>
   const API_BASE = "https://ftmo-carsaf.onrender.com";
 
-  // backend ile aynı 5 sayfa
   const PAGES = [
     ["EURUSD","USDJPY","GBPUSD","AUDUSD"],
     ["USDCAD","USDCHF","EURJPY","EURGBP"],
@@ -149,8 +148,6 @@
   ];
 
   let currentPage = 0;
-
-  const charts = new Map(); // key: containerId -> { chart, series... }
 
   function pill(item){
     if (item.sheet === "LONG") return `<span class="pill pill-long">ÇARŞAF LONG</span>`;
@@ -182,49 +179,50 @@
     pager.appendChild(r);
   }
 
-  function buildChart(priceDiv, macdDiv, item){
-    // cleanup if exists
-    priceDiv.innerHTML = "";
-    macdDiv.innerHTML = "";
-
-    const priceChart = LightweightCharts.createChart(priceDiv, {
+  function createChartCommon(container){
+    return LightweightCharts.createChart(container, {
       layout: { background: { type: 'solid', color: '#ffffff' }, textColor: '#222' },
       rightPriceScale: { borderVisible: false },
       timeScale: { borderVisible: false },
       grid: { vertLines: { visible: false }, horzLines: { visible: false } },
       crosshair: { mode: 1 },
     });
+  }
 
-    const candleSeries = priceChart.addCandlestickSeries();
+  function buildChart(priceDiv, macdDiv, item, compactTimeAxis){
+    priceDiv.innerHTML = "";
+    macdDiv.innerHTML = "";
+
+    const priceChart = createChartCommon(priceDiv);
+
+    // ✅ v5 API: chart.addSeries(...)
+    const candleSeries = priceChart.addSeries(LightweightCharts.CandlestickSeries, {});
     candleSeries.setData(item.candles || []);
 
-    // EMA line series
-    const ema20 = priceChart.addLineSeries({ lineWidth: 2 });
-    const ema50 = priceChart.addLineSeries({ lineWidth: 2 });
-    const ema100 = priceChart.addLineSeries({ lineWidth: 2 });
-    const ema200 = priceChart.addLineSeries({ lineWidth: 2 });
+    const ema20  = priceChart.addSeries(LightweightCharts.LineSeries, { lineWidth: 2 });
+    const ema50  = priceChart.addSeries(LightweightCharts.LineSeries, { lineWidth: 2 });
+    const ema100 = priceChart.addSeries(LightweightCharts.LineSeries, { lineWidth: 2 });
+    const ema200 = priceChart.addSeries(LightweightCharts.LineSeries, { lineWidth: 2 });
 
-    ema20.setData((item.ema_lines?.ema20) || []);
-    ema50.setData((item.ema_lines?.ema50) || []);
-    ema100.setData((item.ema_lines?.ema100) || []);
-    ema200.setData((item.ema_lines?.ema200) || []);
+    ema20.setData(item.ema_lines?.ema20 || []);
+    ema50.setData(item.ema_lines?.ema50 || []);
+    ema100.setData(item.ema_lines?.ema100 || []);
+    ema200.setData(item.ema_lines?.ema200 || []);
 
     priceChart.timeScale().fitContent();
 
-    // MACD histogram (alt chart)
     const macdChart = LightweightCharts.createChart(macdDiv, {
       layout: { background: { type: 'solid', color: '#ffffff' }, textColor: '#222' },
       rightPriceScale: { borderVisible: false },
-      timeScale: { borderVisible: false, visible: false }, // küçükte time axis gizle
+      timeScale: { borderVisible: false, visible: !compactTimeAxis },
       grid: { vertLines: { visible: false }, horzLines: { visible: false } },
       crosshair: { mode: 0 },
     });
 
-    const histSeries = macdChart.addHistogramSeries();
+    const histSeries = macdChart.addSeries(LightweightCharts.HistogramSeries, {});
     histSeries.setData((item.macd_hist || []).map(x => ({ time: x.time, value: x.value })));
     macdChart.timeScale().fitContent();
 
-    // resize observer
     const ro = new ResizeObserver(() => {
       priceChart.applyOptions({ width: priceDiv.clientWidth, height: priceDiv.clientHeight });
       macdChart.applyOptions({ width: macdDiv.clientWidth, height: macdDiv.clientHeight });
@@ -246,8 +244,7 @@
     overlay.style.display = "flex";
     document.body.style.overflow = "hidden";
 
-    // build modal charts
-    buildChart(document.getElementById("modalPrice"), document.getElementById("modalMacd"), item);
+    buildChart(document.getElementById("modalPrice"), document.getElementById("modalMacd"), item, false);
   }
   function closeModal(){
     document.getElementById("modalOverlay").style.display = "none";
@@ -281,7 +278,7 @@
       grid.innerHTML = "";
       for (const item of items){
         const priceId = `price_${item.name}`;
-        const macdId = `macd_${item.name}`;
+        const macdId  = `macd_${item.name}`;
 
         grid.insertAdjacentHTML("beforeend", `
           <div class="${cardClass(item)}">
@@ -312,9 +309,7 @@
         `);
 
         if (item.ok){
-          const priceDiv = document.getElementById(priceId);
-          const macdDiv = document.getElementById(macdId);
-          buildChart(priceDiv, macdDiv, item);
+          buildChart(document.getElementById(priceId), document.getElementById(macdId), item, true);
         }
       }
 
