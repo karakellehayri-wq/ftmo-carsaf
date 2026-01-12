@@ -66,22 +66,31 @@
       background:rgba(0,0,0,.55);
       display:none;
       align-items:center; justify-content:center;
-      padding:16px;
+      padding:0px;
       z-index:9999;
     }
-    .modal{
-      width:min(1300px, 98vw);
-      height:min(900px, 96vh);
+      .modal{
+      width: 100vw;          /* ✅ tam ekran */
+      height: 100vh;         /* ✅ tam ekran */
       background:#fff;
-      border-radius:16px;
+      border-radius:0;       /* ✅ köşe yuvarlak kalksın (tam ekran hissi) */
       overflow:hidden;
-      display:flex; flex-direction:column;
-      border:1px solid #ddd;
+      display:flex;
+      flex-direction:column;
+      border:none;           /* ✅ kenar çizgisi yok */
     }
-    .modalHeader{
+
+    }
+      .modalHeader{
       padding:10px 12px;
       display:flex; justify-content:space-between; align-items:center;
       border-bottom:1px solid #eee;
+      position: sticky;
+      top: 0;
+      background: #fff;
+      z-index: 5;
+    }
+
     }
     .modalClose{
       width:40px; height:36px;
@@ -93,9 +102,9 @@
     }
     .modalBody{ padding:12px; flex:1; min-height:0; display:flex; flex-direction:column; gap:10px; }
     .modalCharts{ flex:1; min-height:0; display:flex; flex-direction:column; gap:10px; }
-    .modalPrice{ flex:1; min-height:0; border:1px solid #eee; border-radius:14px; overflow:hidden; }
-    .modalMacd{ height:160px; border:1px solid #eee; border-radius:14px; overflow:hidden; }
-    .modalStoch{ height:160px; border:1px solid #eee; border-radius:14px; overflow:hidden; }
+    .modalPrice{ flex: 1; min-height:0; border:1px solid #eee; border-radius:0; overflow:hidden; }
+    .modalMacd{ height: 22vh; min-height:140px; border:1px solid #eee; border-radius:0; overflow:hidden; }
+    .modalStoch{ height: 22vh; min-height:140px; border:1px solid #eee; border-radius:0; overflow:hidden; }
   </style>
 
   <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
