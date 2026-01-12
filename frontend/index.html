@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>FTMO – D1 EMA Çarşaf</title>
+
   <style>
     html, body { height: 100%; }
     body { font-family: Arial, sans-serif; margin: 18px; }
@@ -58,39 +59,36 @@
 
     .chartArea { margin-top:10px; flex:1; min-height:0; display:flex; flex-direction:column; gap:8px; }
     .priceChart { flex:1; min-height:0; border:1px solid #eee; border-radius:12px; overflow:hidden; }
-    .macdChart { height:100px; border:1px solid #eee; border-radius:12px; overflow:hidden; }
+    .macdChart  { height:100px; border:1px solid #eee; border-radius:12px; overflow:hidden; }
     .stochChart { height:100px; border:1px solid #eee; border-radius:12px; overflow:hidden; }
 
+    /* FULLSCREEN MODAL */
     .modalOverlay{
       position:fixed; inset:0;
       background:rgba(0,0,0,.55);
       display:none;
       align-items:center; justify-content:center;
-      padding:0px;
+      padding:0;
       z-index:9999;
     }
-      .modal{
-      width: 100vw;          /* ✅ tam ekran */
-      height: 100vh;         /* ✅ tam ekran */
+    .modal{
+      width:100vw;
+      height:100vh;
       background:#fff;
-      border-radius:0;       /* ✅ köşe yuvarlak kalksın (tam ekran hissi) */
+      border-radius:0;
       overflow:hidden;
       display:flex;
       flex-direction:column;
-      border:none;           /* ✅ kenar çizgisi yok */
+      border:none;
     }
-
-    }
-      .modalHeader{
+    .modalHeader{
       padding:10px 12px;
       display:flex; justify-content:space-between; align-items:center;
       border-bottom:1px solid #eee;
       position: sticky;
       top: 0;
-      background: #fff;
+      background:#fff;
       z-index: 5;
-    }
-
     }
     .modalClose{
       width:40px; height:36px;
@@ -100,13 +98,45 @@
       cursor:pointer;
       font-size:18px;
     }
-    .modalBody{ padding:12px; flex:1; min-height:0; display:flex; flex-direction:column; gap:10px; }
-    .modalCharts{ flex:1; min-height:0; display:flex; flex-direction:column; gap:10px; }
-    .modalPrice{ flex: 1; min-height:0; border:1px solid #eee; border-radius:0; overflow:hidden; }
-    .modalMacd{ height: 22vh; min-height:140px; border:1px solid #eee; border-radius:0; overflow:hidden; }
-    .modalStoch{ height: 22vh; min-height:140px; border:1px solid #eee; border-radius:0; overflow:hidden; }
+    .modalBody{
+      padding:12px;
+      flex:1;
+      min-height:0;
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+    }
+    .modalCharts{
+      flex: 1;
+      min-height: 0;
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+    }
+    .modalPrice{
+      flex:1;
+      min-height:0;
+      border:1px solid #eee;
+      border-radius:0;
+      overflow:hidden;
+    }
+    .modalMacd{
+      height:22vh;
+      min-height:140px;
+      border:1px solid #eee;
+      border-radius:0;
+      overflow:hidden;
+    }
+    .modalStoch{
+      height:22vh;
+      min-height:140px;
+      border:1px solid #eee;
+      border-radius:0;
+      overflow:hidden;
+    }
   </style>
 
+  <!-- Lightweight Charts v5 -->
   <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 
@@ -124,6 +154,7 @@
 
   <div class="grid" id="grid">Yükleniyor...</div>
 
+  <!-- Modal -->
   <div class="modalOverlay" id="modalOverlay" onclick="overlayClick(event)">
     <div class="modal" role="dialog" aria-modal="true">
       <div class="modalHeader">
@@ -187,25 +218,27 @@
     pager.appendChild(r);
   }
 
-  function createChartCommon(container){
+  function createChart(container, compactTimeAxis){
     return LightweightCharts.createChart(container, {
       layout: { background: { type: 'solid', color: '#ffffff' }, textColor: '#222' },
       rightPriceScale: { borderVisible: false },
-      timeScale: { borderVisible: false },
+      timeScale: { borderVisible: false, visible: !compactTimeAxis },
       grid: { vertLines: { visible: false }, horzLines: { visible: false } },
       crosshair: { mode: 1 },
+      handleScroll: { mouseWheel: true, pressedMouseMove: true },
+      handleScale:  { mouseWheel: true, pinch: true, axisPressedMouseMove: true },
     });
   }
 
   // MACD histogram: TradingView gibi koyu/açık
-  function mapMacdColors(macdHistArr){
-    if (!macdHistArr || macdHistArr.length === 0) return [];
+  function mapMacdColors(arr){
+    if (!arr || arr.length === 0) return [];
     const GREEN_STRONG = "#089981";
     const GREEN_WEAK   = "#9fd9c9";
     const RED_STRONG   = "#f23645";
     const RED_WEAK     = "#f5a3ab";
 
-    return macdHistArr.map((p, i, arr) => {
+    return arr.map((p, i) => {
       const prev = i > 0 ? arr[i - 1].value : p.value;
       const strengthening = Math.abs(p.value) >= Math.abs(prev);
       const color = (p.value >= 0)
@@ -229,17 +262,79 @@
     return m.color === "green" ? "#16a34a" : "#dc2626";
   }
 
+  // ✅ TimeRange + Crosshair sync (3 panel beraber hareket)
+  function syncAll(priceChart, macdChart, stochChart, candleSeries, histSeries, kSeries){
+    // Visible range sync
+    let syncingRange = false;
+    const bindRange = (source, targets) => {
+      source.timeScale().subscribeVisibleTimeRangeChange(() => {
+        if (syncingRange) return;
+        const r = source.timeScale().getVisibleRange();
+        if (!r) return;
+        syncingRange = true;
+        targets.forEach(t => t.timeScale().setVisibleRange(r));
+        syncingRange = false;
+      });
+    };
+    bindRange(priceChart, [macdChart, stochChart]);
+    bindRange(macdChart,  [priceChart, stochChart]);
+    bindRange(stochChart, [priceChart, macdChart]);
+
+    // Crosshair sync
+    let syncingCross = false;
+
+    const bindCross = (sourceChart, sourceSeries, targets) => {
+      sourceChart.subscribeCrosshairMove((param) => {
+        if (syncingCross) return;
+        syncingCross = true;
+
+        if (!param || !param.time){
+          targets.forEach(t => t.chart.clearCrosshairPosition());
+          syncingCross = false;
+          return;
+        }
+
+        const priceObj = param.seriesPrices?.get(sourceSeries);
+        const priceVal = (priceObj && typeof priceObj === "object")
+          ? (priceObj.close ?? priceObj.value ?? 0)
+          : (typeof priceObj === "number" ? priceObj : 0);
+
+        targets.forEach(t => {
+          // v5: setCrosshairPosition(price, time, series)
+          t.chart.setCrosshairPosition(priceVal, param.time, t.series);
+        });
+
+        syncingCross = false;
+      });
+    };
+
+    bindCross(priceChart, candleSeries, [
+      { chart: macdChart,  series: histSeries },
+      { chart: stochChart, series: kSeries }
+    ]);
+
+    bindCross(macdChart, histSeries, [
+      { chart: priceChart, series: candleSeries },
+      { chart: stochChart, series: kSeries }
+    ]);
+
+    bindCross(stochChart, kSeries, [
+      { chart: priceChart, series: candleSeries },
+      { chart: macdChart,  series: histSeries }
+    ]);
+  }
+
   function buildChart(priceDiv, macdDiv, stochDiv, item, compactTimeAxis){
     priceDiv.innerHTML = "";
     macdDiv.innerHTML = "";
     stochDiv.innerHTML = "";
 
     // PRICE
-    const priceChart = createChartCommon(priceDiv);
+    const priceChart = createChart(priceDiv, compactTimeAxis);
     const candleSeries = priceChart.addSeries(LightweightCharts.CandlestickSeries, {});
     candleSeries.setData(item.candles || []);
 
-    // EMA: etiketi + noktalı price-line kapalı
+    // EMA: etiketi + nokta nokta price-line kapalı
     const emaCommon = {
       lineWidth: 1,
       priceLineVisible: false,
@@ -269,7 +364,7 @@
       segSeries.setData([{ time: s.t1, value: s.price }, { time: s.t2, value: s.price }]);
     }
 
-    // SR Break markers (v5: createSeriesMarkers)
+    // SR Break markers (v5 plugin)
     const mk = (item.sr?.markers || []).map(m => ({
       time: m.time,
       position: markerPos(m),
@@ -284,44 +379,35 @@
     priceChart.timeScale().fitContent();
 
     // MACD
-    const macdChart = LightweightCharts.createChart(macdDiv, {
-      layout: { background: { type: 'solid', color: '#ffffff' }, textColor: '#222' },
-      rightPriceScale: { borderVisible: false },
-      timeScale: { borderVisible: false, visible: !compactTimeAxis },
-      grid: { vertLines: { visible: false }, horzLines: { visible: false } },
-      crosshair: { mode: 0 },
-    });
+    const macdChart = createChart(macdDiv, compactTimeAxis);
     const histSeries = macdChart.addSeries(LightweightCharts.HistogramSeries, {});
-    histSeries.setData(mapMacdColors(item.macd_hist));
+    histSeries.setData(mapMacdColors(item.macd_hist || []));
     macdChart.timeScale().fitContent();
 
-    // STOCH (5,3,3)
-    const stochChart = LightweightCharts.createChart(stochDiv, {
-      layout: { background: { type: 'solid', color: '#ffffff' }, textColor: '#222' },
-      rightPriceScale: { borderVisible: false },
-      timeScale: { borderVisible: false, visible: !compactTimeAxis },
-      grid: { vertLines: { visible: false }, horzLines: { visible: false } },
-      crosshair: { mode: 0 },
-    });
+    // STOCH
+    const stochChart = createChart(stochDiv, compactTimeAxis);
 
-      const kSeries = stochChart.addSeries(LightweightCharts.LineSeries, {
-      lineWidth: 1,              // ✅ inceldi
-      color: "#2563eb",          // ✅ %K (mavi)
+    const kSeries = stochChart.addSeries(LightweightCharts.LineSeries, {
+      lineWidth: 1,
+      color: "#2563eb",          // %K mavi
       priceLineVisible: false,
       lastValueVisible: false,
     });
-      const dSeries = stochChart.addSeries(LightweightCharts.LineSeries, {
-      lineWidth: 1,              // ✅ inceldi
-      color: "#f59e0b",          // ✅ %D (turuncu)
+    const dSeries = stochChart.addSeries(LightweightCharts.LineSeries, {
+      lineWidth: 1,
+      color: "#f59e0b",          // %D turuncu
       priceLineVisible: false,
       lastValueVisible: false,
     });
-
 
     kSeries.setData(item.stoch?.k || []);
     dSeries.setData(item.stoch?.d || []);
     stochChart.timeScale().fitContent();
 
+    // ✅ Sync (scroll/drag + crosshair) üçü beraber
+    syncAll(priceChart, macdChart, stochChart, candleSeries, histSeries, kSeries);
+
+    // Resize
     const ro = new ResizeObserver(() => {
       priceChart.applyOptions({ width: priceDiv.clientWidth, height: priceDiv.clientHeight });
       macdChart.applyOptions({ width: macdDiv.clientWidth, height: macdDiv.clientHeight });
@@ -336,11 +422,11 @@
   function openModal(item){
     document.getElementById("modalTitle").textContent = item.name;
     document.getElementById("modalSub").textContent = `${item.symbol} • ${item.type}`;
-    const st = item.stoch ? `Stoch(${item.stoch.kLen},${item.stoch.kSmooth},${item.stoch.dSmooth})` : "";
+
     document.getElementById("modalInfo").innerHTML = item.ok ? `
       ${pill(item)} | Close: <b>${fmt(item.last_close)}</b>
       | EMA20: ${fmt(item.ema20)} • EMA50: ${fmt(item.ema50)} • EMA100: ${fmt(item.ema100)} • EMA200: ${fmt(item.ema200)}
-      ${st ? " | " + st : ""}
+      | Stoch(5,3,3)
     ` : `<span style="color:#b91c1c;">Veri/Hata:</span> ${item.error || ""}`;
 
     const overlay = document.getElementById("modalOverlay");
@@ -415,7 +501,7 @@
 
             <div class="chartArea">
               <div class="priceChart" id="${priceId}"></div>
-              <div class="macdChart" id="${macdId}"></div>
+              <div class="macdChart"  id="${macdId}"></div>
               <div class="stochChart" id="${stochId}"></div>
             </div>
           </div>
