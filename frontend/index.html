@@ -29,8 +29,7 @@
     <div>
       <div style="font-size:20px;font-weight:900;">FTMO – D1 EMA Çarşaf</div>
       <div class="muted">
-        EMA20/50/100/200 sıralıysa kart yeşil border olur.  
-        Kart içinde TradingView mum + <b>MACD</b> vardır.
+        EMA20/50/100/200 sıralıysa kart yeşil border olur. Kart içinde TradingView mum + <b>MACD</b> vardır. (Volume kapalı)
       </div>
     </div>
 
@@ -85,7 +84,7 @@
     "AUS200": "TVC:AU200"
   };
 
-  // TradingView mini chart + MACD
+  // TradingView mini chart + MACD (Volume kapalı)
   function tvEmbedUrl(name){
     const sym = TV_SYMBOL[name];
     if (!sym) return null;
@@ -93,12 +92,13 @@
     const params = new URLSearchParams({
       symbol: sym,
       interval: "D",
-      style: "1",              // candlestick
+      style: "1",                 // candlestick
       theme: "light",
       hide_top_toolbar: "1",
       hide_side_toolbar: "1",
       allow_symbol_change: "0",
       studies: "MACD@tv-basicstudies", // ✅ MACD
+      hide_volume: "1",            // ✅ Volume kapalı
       withdateranges: "0",
       saveimage: "0",
       details: "0",
@@ -124,7 +124,7 @@
 
   function cardClass(item){
     if (item.sheet === "LONG") return "card green";
-    if (item.sheet === "SHORT") return "card green"; // istersen kırmızı yaparız
+    if (item.sheet === "SHORT") return "card green"; // istersen short kırmızı border
     return "card";
   }
 
