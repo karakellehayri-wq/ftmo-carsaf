@@ -107,7 +107,7 @@
     <div>
       <div style="font-size:20px;font-weight:900;">FTMO – D1 EMA Çarşaf</div>
       <div class="muted">
-        Mum + EMA20/50/100/200 (ince). MACD histogram TradingView gibi koyu/açık kırmızı-yeşil. ⤢ ile tam ekran.
+        Mum + EMA20/50/100/200 (ince) + MACD histogram (koyu/açık) + LuxAlgo SR/Breaks. ⤢ ile tam ekran.
       </div>
     </div>
     <div>
@@ -191,13 +191,9 @@
     });
   }
 
-  // ✅ TradingView MACD histogram stili:
-  //  - üstte yeşil, altta kırmızı
-  //  - güç artıyorsa koyu, zayıflıyorsa açık (fade)
+  // MACD histogram: TradingView gibi koyu/açık kırmızı-yeşil
   function mapMacdColors(macdHistArr){
     if (!macdHistArr || macdHistArr.length === 0) return [];
-
-    // TradingView'e yakın tonlar
     const GREEN_STRONG = "#089981";
     const GREEN_WEAK   = "#9fd9c9";
     const RED_STRONG   = "#f23645";
@@ -208,14 +204,29 @@
       const strengthening = Math.abs(p.value) >= Math.abs(prev);
 
       let color;
-      if (p.value >= 0) {
-        color = strengthening ? GREEN_STRONG : GREEN_WEAK;
-      } else {
-        color = strengthening ? RED_STRONG : RED_WEAK;
-      }
+      if (p.value >= 0) color = strengthening ? GREEN_STRONG : GREEN_WEAK;
+      else color = strengthening ? RED_STRONG : RED_WEAK;
 
       return { time: p.time, value: p.value, color };
     });
+  }
+
+  function markerShape(m){
+    // LightweightCharts marker shapes: 'circle', 'square', 'arrowUp', 'arrowDown'
+    if (m.shape === "arrowUp") return "arrowUp";
+    if (m.shape === "arrowDown") return "arrowDown";
+    return "circle";
+  }
+
+  function markerPos(m){
+    // position: 'aboveBar' | 'belowBar' | 'inBar'
+    if (m.position === "aboveBar") return "aboveBar";
+    if (m.position === "belowBar") return "belowBar";
+    return "inBar";
+  }
+
+  function markerColor(m){
+    return m.color === "green" ? "#16a34a" : "#dc2626";
   }
 
   function buildChart(priceDiv, macdDiv, item, compactTimeAxis){
@@ -227,7 +238,7 @@
     const candleSeries = priceChart.addSeries(LightweightCharts.CandlestickSeries, {});
     candleSeries.setData(item.candles || []);
 
-    // ✅ EMA çizgileri daha ince (lineWidth: 1)
+    // EMA çizgileri ince
     const ema20  = priceChart.addSeries(LightweightCharts.LineSeries, { lineWidth: 1 });
     const ema50  = priceChart.addSeries(LightweightCharts.LineSeries, { lineWidth: 1 });
     const ema100 = priceChart.addSeries(LightweightCharts.LineSeries, { lineWidth: 1 });
@@ -238,8 +249,40 @@
     ema100.setData(item.ema_lines?.ema100 || []);
     ema200.setData(item.ema_lines?.ema200 || []);
 
+    // LuxAlgo SR çizgileri (segment)
+    // Kırmızı: resistance, Mavi: support
+    const segs = item.sr?.segments || [];
+    for (const s of segs){
+      const isRes = s.kind === "resistance";
+      const color = isRes ? "#FF0000" : "#233dee";
+      const lw = 3;
+
+      const segSeries = priceChart.addSeries(LightweightCharts.LineSeries, {
+        lineWidth: lw,
+        color: color,
+        priceLineVisible: false,
+        lastValueVisible: false,
+      });
+
+      segSeries.setData([
+        { time: s.t1, value: s.price },
+        { time: s.t2, value: s.price },
+      ]);
+    }
+
+    // LuxAlgo Break markers
+    const mk = (item.sr?.markers || []).map(m => ({
+      time: m.time,
+      position: markerPos(m),
+      color: markerColor(m),
+      shape: markerShape(m),
+      text: m.text
+    }));
+    candleSeries.setMarkers(mk);
+
     priceChart.timeScale().fitContent();
 
+    // MACD hist
     const macdChart = LightweightCharts.createChart(macdDiv, {
       layout: { background: { type: 'solid', color: '#ffffff' }, textColor: '#222' },
       rightPriceScale: { borderVisible: false },
@@ -253,6 +296,7 @@
 
     macdChart.timeScale().fitContent();
 
+    // Resize
     const ro = new ResizeObserver(() => {
       priceChart.applyOptions({ width: priceDiv.clientWidth, height: priceDiv.clientHeight });
       macdChart.applyOptions({ width: macdDiv.clientWidth, height: macdDiv.clientHeight });
@@ -265,9 +309,11 @@
   function openModal(item){
     document.getElementById("modalTitle").textContent = item.name;
     document.getElementById("modalSub").textContent = `${item.symbol} • ${item.type}`;
+    const srInfo = item.sr ? `SR: L=${item.sr.leftBars}, R=${item.sr.rightBars}, VolThr=${item.sr.volumeThresh}` : "";
     document.getElementById("modalInfo").innerHTML = item.ok ? `
       ${pill(item)} | Close: <b>${fmt(item.last_close)}</b>
       | EMA20: ${fmt(item.ema20)} • EMA50: ${fmt(item.ema50)} • EMA100: ${fmt(item.ema100)} • EMA200: ${fmt(item.ema200)}
+      ${srInfo ? " | " + srInfo : ""}
     ` : `<span style="color:#b91c1c;">Veri/Hata:</span> ${item.error || ""}`;
 
     const overlay = document.getElementById("modalOverlay");
