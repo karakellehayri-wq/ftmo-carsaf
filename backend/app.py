@@ -12,7 +12,7 @@ LEFT_BARS = int(os.getenv("SR_LEFT_BARS", "15"))
 RIGHT_BARS = int(os.getenv("SR_RIGHT_BARS", "15"))
 VOLUME_THRESH = float(os.getenv("SR_VOLUME_THRESH", "20"))
 
-# Stochastic ayarları (resimdeki)
+# Stochastic ayarları (5,3,3)
 STOCH_K_LEN = int(os.getenv("STOCH_K_LEN", "5"))
 STOCH_K_SMOOTH = int(os.getenv("STOCH_K_SMOOTH", "3"))
 STOCH_D_SMOOTH = int(os.getenv("STOCH_D_SMOOTH", "3"))
@@ -73,11 +73,7 @@ def sma_series(values, period: int):
     count = 0
     q = []
     for i, v in enumerate(values):
-        if v is None:
-            q.append(None)
-        else:
-            q.append(float(v))
-        # maintain window
+        q.append(None if v is None else float(v))
         if q[-1] is not None:
             s += q[-1]
             count += 1
@@ -122,25 +118,15 @@ def macd_hist(values, fast=12, slow=26, signal=9):
     return hist
 
 def stochastic_kd(opens, highs, lows, closes, k_len=5, k_smooth=3, d_smooth=3):
-    """
-    TradingView stoch mantığı:
-    rawK = 100*(close-LL)/(HH-LL)
-    K = SMA(rawK, k_smooth)
-    D = SMA(K, d_smooth)
-    """
     n = len(closes)
     rawK = [None] * n
-
     for i in range(n):
         if i < k_len - 1:
             continue
         hh = max(highs[i - k_len + 1: i + 1])
         ll = min(lows[i - k_len + 1: i + 1])
         denom = hh - ll
-        if denom == 0:
-            rawK[i] = 0.0
-        else:
-            rawK[i] = 100.0 * (closes[i] - ll) / denom
+        rawK[i] = 0.0 if denom == 0 else 100.0 * (closes[i] - ll) / denom
 
     k_line = sma_series(rawK, k_smooth)
     d_line = sma_series(k_line, d_smooth)
@@ -179,11 +165,9 @@ def fetch_daily_ohlc(symbol: str, bars: int = 900):
     return candles, opens, highs, lows, closes, volumes
 
 def classify_sheet(e20, e50, e100, e200):
-    long_sheet = (e20 > e50 > e100 > e200)
-    short_sheet = (e20 < e50 < e100 < e200)
-    if long_sheet:
+    if e20 > e50 > e100 > e200:
         return "LONG"
-    if short_sheet:
+    if e20 < e50 < e100 < e200:
         return "SHORT"
     return "NONE"
 
@@ -326,10 +310,6 @@ app.add_middleware(
     allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"],
 )
 
-@app.get("/api/pages")
-def pages():
-    return {"pages": len(PAGES), "page_sizes": [len(p) for p in PAGES]}
-
 @app.get("/api/watchlist/{page}")
 def watchlist_page(page: int):
     max_page = len(PAGES)
@@ -357,11 +337,8 @@ def watchlist_page(page: int):
             sheet = classify_sheet(last_e20, last_e50, last_e100, last_e200)
 
             hist = macd_hist(closes)
-
-            # Stochastic
             stoch_k, stoch_d = stochastic_kd(opens, highs, lows, closes, STOCH_K_LEN, STOCH_K_SMOOTH, STOCH_D_SMOOTH)
 
-            # SR
             ph = pivot_high(highs, LEFT_BARS, RIGHT_BARS)
             pl = pivot_low(lows, LEFT_BARS, RIGHT_BARS)
             res_ff = forward_fill(ph)
@@ -397,6 +374,7 @@ def watchlist_page(page: int):
                     out.append({"time": candles[i]["time"], "value": float(v)})
                 return out
 
+            # SR çizgileri
             seg_res = sr_segments(candles, res_ff, "resistance", max_segments=30)
             seg_sup = sr_segments(candles, sup_ff, "support", max_segments=30)
 
@@ -432,7 +410,6 @@ def watchlist_page(page: int):
                     for i in range(len(candles) - n, len(candles))
                     if i >= 0 and hist[i] is not None
                 ],
-
                 "stoch": {
                     "kLen": STOCH_K_LEN,
                     "kSmooth": STOCH_K_SMOOTH,
@@ -440,11 +417,7 @@ def watchlist_page(page: int):
                     "k": pack_stoch(stoch_k),
                     "d": pack_stoch(stoch_d),
                 },
-
                 "sr": {
-                    "leftBars": LEFT_BARS,
-                    "rightBars": RIGHT_BARS,
-                    "volumeThresh": VOLUME_THRESH,
                     "segments": clamp_segs(seg_res) + clamp_segs(seg_sup),
                     "markers": markers
                 }
