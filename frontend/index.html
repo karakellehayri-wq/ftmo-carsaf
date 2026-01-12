@@ -13,7 +13,6 @@
     button { padding:8px 12px; border-radius:10px; border:1px solid #ddd; background:#fff; cursor:pointer; }
     .active { font-weight:900; }
 
-    /* 2x2 full screen */
     .grid {
       display:grid;
       grid-template-columns: repeat(2, 1fr);
@@ -59,9 +58,9 @@
 
     .chartArea { margin-top:10px; flex:1; min-height:0; display:flex; flex-direction:column; gap:8px; }
     .priceChart { flex:1; min-height:0; border:1px solid #eee; border-radius:12px; overflow:hidden; }
-    .macdChart { height:110px; border:1px solid #eee; border-radius:12px; overflow:hidden; }
+    .macdChart { height:100px; border:1px solid #eee; border-radius:12px; overflow:hidden; }
+    .stochChart { height:100px; border:1px solid #eee; border-radius:12px; overflow:hidden; }
 
-    /* Modal */
     .modalOverlay{
       position:fixed; inset:0;
       background:rgba(0,0,0,.55);
@@ -72,7 +71,7 @@
     }
     .modal{
       width:min(1300px, 98vw);
-      height:min(820px, 96vh);
+      height:min(900px, 96vh);
       background:#fff;
       border-radius:16px;
       overflow:hidden;
@@ -96,9 +95,9 @@
     .modalCharts{ flex:1; min-height:0; display:flex; flex-direction:column; gap:10px; }
     .modalPrice{ flex:1; min-height:0; border:1px solid #eee; border-radius:14px; overflow:hidden; }
     .modalMacd{ height:160px; border:1px solid #eee; border-radius:14px; overflow:hidden; }
+    .modalStoch{ height:160px; border:1px solid #eee; border-radius:14px; overflow:hidden; }
   </style>
 
-  <!-- Lightweight Charts (v5) -->
   <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 
@@ -106,9 +105,7 @@
   <div class="top">
     <div>
       <div style="font-size:20px;font-weight:900;">FTMO – D1 EMA Çarşaf</div>
-      <div class="muted">
-        Mum + EMA20/50/100/200 (ince) + MACD histogram (koyu/açık) + LuxAlgo SR/Breaks. ⤢ ile tam ekran.
-      </div>
+      <div class="muted">Mum + EMA20/50/100/200 (etiket yok) + MACD hist + Stochastic(5,3,3) + LuxAlgo SR/Breaks. ⤢ ile tam ekran.</div>
     </div>
     <div>
       <div class="pager" id="pager"></div>
@@ -118,7 +115,6 @@
 
   <div class="grid" id="grid">Yükleniyor...</div>
 
-  <!-- Modal -->
   <div class="modalOverlay" id="modalOverlay" onclick="overlayClick(event)">
     <div class="modal" role="dialog" aria-modal="true">
       <div class="modalHeader">
@@ -133,6 +129,7 @@
         <div class="modalCharts">
           <div class="modalPrice" id="modalPrice"></div>
           <div class="modalMacd" id="modalMacd"></div>
+          <div class="modalStoch" id="modalStoch"></div>
         </div>
       </div>
     </div>
@@ -191,7 +188,7 @@
     });
   }
 
-  // MACD histogram: TradingView gibi koyu/açık kırmızı-yeşil
+  // MACD histogram: TradingView gibi koyu/açık
   function mapMacdColors(macdHistArr){
     if (!macdHistArr || macdHistArr.length === 0) return [];
     const GREEN_STRONG = "#089981";
@@ -202,81 +199,68 @@
     return macdHistArr.map((p, i, arr) => {
       const prev = i > 0 ? arr[i - 1].value : p.value;
       const strengthening = Math.abs(p.value) >= Math.abs(prev);
-
-      let color;
-      if (p.value >= 0) color = strengthening ? GREEN_STRONG : GREEN_WEAK;
-      else color = strengthening ? RED_STRONG : RED_WEAK;
-
+      const color = (p.value >= 0)
+        ? (strengthening ? GREEN_STRONG : GREEN_WEAK)
+        : (strengthening ? RED_STRONG : RED_WEAK);
       return { time: p.time, value: p.value, color };
     });
   }
 
   function markerShape(m){
-    // LightweightCharts marker shapes: 'circle', 'square', 'arrowUp', 'arrowDown'
     if (m.shape === "arrowUp") return "arrowUp";
     if (m.shape === "arrowDown") return "arrowDown";
     return "circle";
   }
-
   function markerPos(m){
-    // position: 'aboveBar' | 'belowBar' | 'inBar'
     if (m.position === "aboveBar") return "aboveBar";
     if (m.position === "belowBar") return "belowBar";
     return "inBar";
   }
-
   function markerColor(m){
     return m.color === "green" ? "#16a34a" : "#dc2626";
   }
 
-  function buildChart(priceDiv, macdDiv, item, compactTimeAxis){
+  function buildChart(priceDiv, macdDiv, stochDiv, item, compactTimeAxis){
     priceDiv.innerHTML = "";
     macdDiv.innerHTML = "";
+    stochDiv.innerHTML = "";
 
+    // PRICE
     const priceChart = createChartCommon(priceDiv);
-
     const candleSeries = priceChart.addSeries(LightweightCharts.CandlestickSeries, {});
     candleSeries.setData(item.candles || []);
 
+    // EMA: etiketi + noktalı price-line kapalı
     const emaCommon = {
-    lineWidth: 1,
-    priceLineVisible: false,  // ✅ nokta nokta yatay çizgi kapalı
-    lastValueVisible: false,  // ✅ sağdaki fiyat etiketi kapalı
-};
-
+      lineWidth: 1,
+      priceLineVisible: false,
+      lastValueVisible: false,
+    };
     const ema20  = priceChart.addSeries(LightweightCharts.LineSeries, emaCommon);
     const ema50  = priceChart.addSeries(LightweightCharts.LineSeries, emaCommon);
     const ema100 = priceChart.addSeries(LightweightCharts.LineSeries, emaCommon);
     const ema200 = priceChart.addSeries(LightweightCharts.LineSeries, emaCommon);
-
 
     ema20.setData(item.ema_lines?.ema20 || []);
     ema50.setData(item.ema_lines?.ema50 || []);
     ema100.setData(item.ema_lines?.ema100 || []);
     ema200.setData(item.ema_lines?.ema200 || []);
 
-    // LuxAlgo SR çizgileri (segment)
-    // Kırmızı: resistance, Mavi: support
+    // LuxAlgo SR segmentleri
     const segs = item.sr?.segments || [];
     for (const s of segs){
       const isRes = s.kind === "resistance";
       const color = isRes ? "#FF0000" : "#233dee";
-      const lw = 3;
-
       const segSeries = priceChart.addSeries(LightweightCharts.LineSeries, {
-        lineWidth: lw,
-        color: color,
+        lineWidth: 3,
+        color,
         priceLineVisible: false,
         lastValueVisible: false,
       });
-
-      segSeries.setData([
-        { time: s.t1, value: s.price },
-        { time: s.t2, value: s.price },
-      ]);
+      segSeries.setData([{ time: s.t1, value: s.price }, { time: s.t2, value: s.price }]);
     }
 
-    // LuxAlgo Break markers
+    // SR Break markers (v5: createSeriesMarkers)
     const mk = (item.sr?.markers || []).map(m => ({
       time: m.time,
       position: markerPos(m),
@@ -284,11 +268,13 @@
       shape: markerShape(m),
       text: m.text
     }));
-    LightweightCharts.createSeriesMarkers(candleSeries, mk);
+    if (typeof LightweightCharts.createSeriesMarkers === "function") {
+      LightweightCharts.createSeriesMarkers(candleSeries, mk);
+    }
 
     priceChart.timeScale().fitContent();
 
-    // MACD hist
+    // MACD
     const macdChart = LightweightCharts.createChart(macdDiv, {
       layout: { background: { type: 'solid', color: '#ffffff' }, textColor: '#222' },
       rightPriceScale: { borderVisible: false },
@@ -296,42 +282,72 @@
       grid: { vertLines: { visible: false }, horzLines: { visible: false } },
       crosshair: { mode: 0 },
     });
-
     const histSeries = macdChart.addSeries(LightweightCharts.HistogramSeries, {});
     histSeries.setData(mapMacdColors(item.macd_hist));
-
     macdChart.timeScale().fitContent();
 
-    // Resize
+    // STOCH (5,3,3)
+    const stochChart = LightweightCharts.createChart(stochDiv, {
+      layout: { background: { type: 'solid', color: '#ffffff' }, textColor: '#222' },
+      rightPriceScale: { borderVisible: false },
+      timeScale: { borderVisible: false, visible: !compactTimeAxis },
+      grid: { vertLines: { visible: false }, horzLines: { visible: false } },
+      crosshair: { mode: 0 },
+    });
+
+    const kSeries = stochChart.addSeries(LightweightCharts.LineSeries, {
+      lineWidth: 2,
+      priceLineVisible: false,
+      lastValueVisible: false,
+    });
+    const dSeries = stochChart.addSeries(LightweightCharts.LineSeries, {
+      lineWidth: 2,
+      priceLineVisible: false,
+      lastValueVisible: false,
+    });
+
+    kSeries.setData(item.stoch?.k || []);
+    dSeries.setData(item.stoch?.d || []);
+    stochChart.timeScale().fitContent();
+
     const ro = new ResizeObserver(() => {
       priceChart.applyOptions({ width: priceDiv.clientWidth, height: priceDiv.clientHeight });
       macdChart.applyOptions({ width: macdDiv.clientWidth, height: macdDiv.clientHeight });
+      stochChart.applyOptions({ width: stochDiv.clientWidth, height: stochDiv.clientHeight });
     });
     ro.observe(priceDiv);
     ro.observe(macdDiv);
+    ro.observe(stochDiv);
   }
 
   // Modal
   function openModal(item){
     document.getElementById("modalTitle").textContent = item.name;
     document.getElementById("modalSub").textContent = `${item.symbol} • ${item.type}`;
-    const srInfo = item.sr ? `SR: L=${item.sr.leftBars}, R=${item.sr.rightBars}, VolThr=${item.sr.volumeThresh}` : "";
+    const st = item.stoch ? `Stoch(${item.stoch.kLen},${item.stoch.kSmooth},${item.stoch.dSmooth})` : "";
     document.getElementById("modalInfo").innerHTML = item.ok ? `
       ${pill(item)} | Close: <b>${fmt(item.last_close)}</b>
       | EMA20: ${fmt(item.ema20)} • EMA50: ${fmt(item.ema50)} • EMA100: ${fmt(item.ema100)} • EMA200: ${fmt(item.ema200)}
-      ${srInfo ? " | " + srInfo : ""}
+      ${st ? " | " + st : ""}
     ` : `<span style="color:#b91c1c;">Veri/Hata:</span> ${item.error || ""}`;
 
     const overlay = document.getElementById("modalOverlay");
     overlay.style.display = "flex";
     document.body.style.overflow = "hidden";
 
-    buildChart(document.getElementById("modalPrice"), document.getElementById("modalMacd"), item, false);
+    buildChart(
+      document.getElementById("modalPrice"),
+      document.getElementById("modalMacd"),
+      document.getElementById("modalStoch"),
+      item,
+      false
+    );
   }
   function closeModal(){
     document.getElementById("modalOverlay").style.display = "none";
     document.getElementById("modalPrice").innerHTML = "";
     document.getElementById("modalMacd").innerHTML = "";
+    document.getElementById("modalStoch").innerHTML = "";
     document.body.style.overflow = "auto";
   }
   function overlayClick(e){
@@ -361,6 +377,7 @@
       for (const item of items){
         const priceId = `price_${item.name}`;
         const macdId  = `macd_${item.name}`;
+        const stochId = `stoch_${item.name}`;
 
         grid.insertAdjacentHTML("beforeend", `
           <div class="${cardClass(item)}">
@@ -377,6 +394,7 @@
                 <div>Close: <b>${fmt(item.last_close)}</b></div>
                 <div class="muted">EMA20: ${fmt(item.ema20)} | EMA50: ${fmt(item.ema50)}</div>
                 <div class="muted">EMA100: ${fmt(item.ema100)} | EMA200: ${fmt(item.ema200)}</div>
+                <div class="muted">Stoch(5,3,3)</div>
               </div>
             ` : `
               <div style="margin-top:8px;color:#b91c1c">Veri/Hata</div>
@@ -386,16 +404,22 @@
             <div class="chartArea">
               <div class="priceChart" id="${priceId}"></div>
               <div class="macdChart" id="${macdId}"></div>
+              <div class="stochChart" id="${stochId}"></div>
             </div>
           </div>
         `);
 
         if (item.ok){
-          buildChart(document.getElementById(priceId), document.getElementById(macdId), item, true);
+          buildChart(
+            document.getElementById(priceId),
+            document.getElementById(macdId),
+            document.getElementById(stochId),
+            item,
+            true
+          );
         }
       }
 
-      // expand buttons
       const btns = Array.from(document.querySelectorAll(".expandBtn"));
       for (const btn of btns){
         const nm = btn.getAttribute("data-name");
