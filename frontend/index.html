@@ -3,11 +3,10 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>FTMO – D1 EMA Çarşaf</title>
-  <script src="https://s3.tradingview.com/tv.js"></script>
+  <title>FTMO – D1 Panel</title>
 
   <style>
-    html, body { height:100%; }
+    html, body { height: 100%; }
     body { font-family: Arial, sans-serif; margin: 18px; }
 
     .top { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; }
@@ -35,8 +34,8 @@
       min-height:0;
       position:relative;
     }
-
     .green { border-color:#22c55e; box-shadow: 0 0 0 2px rgba(34,197,94,.15) inset; }
+
     .title { font-weight:900; font-size:16px; }
     .muted { color:#666; font-size:12px; }
 
@@ -59,7 +58,9 @@
       z-index:2;
     }
 
-    .tvBox { flex:1; min-height:0; margin-top:10px; border:1px solid #eee; border-radius:12px; overflow:hidden; }
+    .chartArea { margin-top:10px; flex:1; min-height:0; display:flex; flex-direction:column; gap:8px; }
+    .priceChart { flex:1; min-height:0; border:1px solid #eee; border-radius:12px; overflow:hidden; }
+    .macdChart { height:110px; border:1px solid #eee; border-radius:12px; overflow:hidden; }
 
     /* FULLSCREEN MODAL */
     .modalOverlay{
@@ -74,15 +75,20 @@
       width:100vw;
       height:100vh;
       background:#fff;
+      border-radius:0;
       overflow:hidden;
       display:flex;
       flex-direction:column;
+      border:none;
     }
     .modalHeader{
       padding:10px 12px;
       display:flex; justify-content:space-between; align-items:center;
       border-bottom:1px solid #eee;
+      position: sticky;
+      top: 0;
       background: #fff;
+      z-index: 5;
     }
     .modalClose{
       width:40px; height:36px;
@@ -93,17 +99,19 @@
       font-size:18px;
     }
     .modalBody{ padding:12px; flex:1; min-height:0; display:flex; flex-direction:column; gap:10px; }
-    .modalChart{ flex:1; min-height:0; border:1px solid #eee; border-radius:12px; overflow:hidden; }
+    .modalCharts{ flex:1; min-height:0; display:flex; flex-direction:column; gap:10px; }
+    .modalPrice{ flex:1; min-height:0; border:1px solid #eee; border-radius:0; overflow:hidden; }
+    .modalMacd{ height:22vh; min-height:160px; border:1px solid #eee; border-radius:0; overflow:hidden; }
   </style>
+
+  <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 
 <body>
   <div class="top">
     <div>
-      <div style="font-size:20px;font-weight:900;">FTMO – D1 EMA Çarşaf</div>
-      <div class="muted">
-        Stabil sürüm (TradingView widget). EMA 20/50/100/200 (width=1) + MACD (kırmızı/yeşil, zayıflayınca açık ton).
-      </div>
+      <div style="font-size:20px;font-weight:900;">FTMO – D1 Panel</div>
+      <div class="muted">EMA 20/50/100/200 (width=1) + MACD histogram (TV gibi koyu/açık). Kaydırma/zoom tamamen kapalı.</div>
     </div>
     <div>
       <div class="pager" id="pager"></div>
@@ -124,37 +132,16 @@
       </div>
       <div class="modalBody">
         <div class="muted" id="modalInfo"></div>
-        <div class="modalChart" id="modalTV"></div>
+        <div class="modalCharts">
+          <div class="modalPrice" id="modalPrice"></div>
+          <div class="modalMacd" id="modalMacd"></div>
+        </div>
       </div>
     </div>
   </div>
 
 <script>
   const API_BASE = "https://ftmo-carsaf.onrender.com";
-
-  // TradingView symbol map
-  const TV_MAP = {
-    "EURUSD": "FX:EURUSD",
-    "USDJPY": "FX:USDJPY",
-    "GBPUSD": "FX:GBPUSD",
-    "AUDUSD": "FX:AUDUSD",
-    "USDCAD": "FX:USDCAD",
-    "USDCHF": "FX:USDCHF",
-    "EURJPY": "FX:EURJPY",
-    "EURGBP": "FX:EURGBP",
-    "GBPJPY": "FX:GBPJPY",
-    "AUDJPY": "FX:AUDJPY",
-    "XAUUSD": "OANDA:XAUUSD",
-    "XAGUSD": "OANDA:XAGUSD",
-    "USOIL":  "TVC:USOIL",
-    "US500":  "TVC:SPX",
-    "NAS100": "TVC:NDX",
-    "US30":   "TVC:DJI",
-    "GER40":  "XETR:DAX",
-    "UK100":  "TVC:UKX",
-    "JP225":  "TVC:NI225",
-    "AUS200": "TVC:AU200",
-  };
 
   const PAGES = [
     ["EURUSD","USDJPY","GBPUSD","AUDUSD"],
@@ -163,7 +150,6 @@
     ["USOIL","US500","NAS100","US30"],
     ["GER40","UK100","JP225","AUS200"],
   ];
-
   let currentPage = 0;
 
   function pill(item){
@@ -196,61 +182,83 @@
     pager.appendChild(r);
   }
 
-  /**
-   * TradingView widget:
-   * - EMA 20/50/100/200 ekli (4 kez)
-   * - MACD ekli
-   *
-   * Not: TradingView’de MACD histogramın koyu/açık (strength/weak) rengi zaten standarttır.
-   * EMA width=1 için overrides deniyoruz; bazı hesaplarda TV bu override’ı kısıtlayabiliyor.
-   */
-  function makeTVWidget(containerId, tvSymbol){
-    // Bazı ortamlarda EMA adı "Moving Average Exponential@tv-basicstudies" olarak çalışır.
-    // Eğer sende EMA görünmezse bana söyle, study id'yi alternatifle değiştiririz.
-    const EMA_ID = "Moving Average Exponential@tv-basicstudies";
+  // ✅ KAYDIRMA/ZOOM KAPALI chart
+  function createLockedChart(container, { showTime = false, hideRightScale = false } = {}){
+    return LightweightCharts.createChart(container, {
+      layout: { background: { type: 'solid', color: '#ffffff' }, textColor: '#222' },
+      rightPriceScale: { borderVisible: false, visible: !hideRightScale },
+      leftPriceScale: { visible: false },
+      timeScale: { borderVisible: false, visible: showTime },
+      grid: { vertLines: { visible: false }, horzLines: { visible: false } },
+      crosshair: { mode: 1 },
 
-    new TradingView.widget({
-      autosize: true,
-      symbol: tvSymbol,
-      interval: "D",
-      timezone: "Etc/UTC",
-      theme: "light",
-      style: "1",           // candles
-      locale: "tr",
-      enable_publishing: false,
-      hide_side_toolbar: true,
-      hide_top_toolbar: true,
-      hide_legend: false,
-      allow_symbol_change: false,
-      save_image: false,
-
-      // ✅ EMA 20/50/100/200 + MACD
-      // TradingView widget bazı hesaplarda object-form inputs'u destekler, bazılarında sadece string ister.
-      // Bu yüzden "string" yöntemiyle çoklu EMA çağırıyoruz.
-      studies: [
-        EMA_ID,
-        EMA_ID,
-        EMA_ID,
-        EMA_ID,
-        "MACD@tv-basicstudies"
-      ],
-
-      // ✅ EMA’ların uzunluklarını (20/50/100/200) set etmeye çalışıyoruz.
-      // TradingView bazen index’li override formatını ister; bu blok çalışmazsa EMA’lar default gelebilir.
-      // Yine de EMA çizgileri görünür; uzunluklar için bir sonraki mesajda "index override" formatını netleştiririz.
-      studies_overrides: {
-        // EMA çizgi kalınlığı (width=1) – TV desteklerse uygular
-        "moving average exponential.linewidth": 1,
-
-        // MACD renklerini TradingView default'a bırakıyoruz (kırmızı/yeşil + zayıf açık ton)
-      },
-
-      container_id: containerId,
+      // ✅ her şeyi kilitle
+      handleScroll: { mouseWheel: false, pressedMouseMove: false, horzTouchDrag: false, vertTouchDrag: false },
+      handleScale:  { mouseWheel: false, pinch: false, axisPressedMouseMove: false },
+      kineticScroll: { mouse: false, touch: false },
     });
+  }
 
-    // EMA length’leri TV widget API’de sürüme göre farklı override ister.
-    // Eğer EMA’lar 20/50/100/200 olarak gelmezse, bana ekran görüntüsü at:
-    // "EMA’lar var ama hepsi aynı" diye. Ben sana %100 çalışan override formatını veririm.
+  // ✅ MACD histogram: TV gibi koyu/açık
+  function mapMacdColors(macdHistArr){
+    if (!macdHistArr || macdHistArr.length === 0) return [];
+    const GREEN_STRONG = "#089981";
+    const GREEN_WEAK   = "#9fd9c9";
+    const RED_STRONG   = "#f23645";
+    const RED_WEAK     = "#f5a3ab";
+
+    return macdHistArr.map((p, i, arr) => {
+      const prev = i > 0 ? arr[i - 1].value : p.value;
+      const strengthening = Math.abs(p.value) >= Math.abs(prev);
+      const color = (p.value >= 0)
+        ? (strengthening ? GREEN_STRONG : GREEN_WEAK)
+        : (strengthening ? RED_STRONG : RED_WEAK);
+      return { time: p.time, value: p.value, color };
+    });
+  }
+
+  function buildLockedCharts(priceDiv, macdDiv, item, showTime){
+    priceDiv.innerHTML = "";
+    macdDiv.innerHTML = "";
+
+    const priceChart = createLockedChart(priceDiv, { showTime, hideRightScale: false });
+    const candleSeries = priceChart.addSeries(LightweightCharts.CandlestickSeries, {});
+    candleSeries.setData(item.candles || []);
+
+    // EMA çizgileri (width=1) + etiketsiz
+    const emaCommon = {
+      lineWidth: 1,
+      priceLineVisible: false,
+      lastValueVisible: false,
+    };
+    const e20  = priceChart.addSeries(LightweightCharts.LineSeries, emaCommon);
+    const e50  = priceChart.addSeries(LightweightCharts.LineSeries, emaCommon);
+    const e100 = priceChart.addSeries(LightweightCharts.LineSeries, emaCommon);
+    const e200 = priceChart.addSeries(LightweightCharts.LineSeries, emaCommon);
+
+    e20.setData(item.ema_lines?.ema20 || []);
+    e50.setData(item.ema_lines?.ema50 || []);
+    e100.setData(item.ema_lines?.ema100 || []);
+    e200.setData(item.ema_lines?.ema200 || []);
+
+    priceChart.timeScale().fitContent();
+
+    const macdChart = createLockedChart(macdDiv, { showTime, hideRightScale: true });
+    const histSeries = macdChart.addSeries(LightweightCharts.HistogramSeries, {});
+    histSeries.setData(mapMacdColors(item.macd_hist || []));
+    macdChart.timeScale().fitContent();
+
+    // ✅ İkisini aynı range’e eşitle (kullanıcı etkileşimi yok, o yüzden sapma olmaz)
+    const r = priceChart.timeScale().getVisibleRange();
+    if (r) macdChart.timeScale().setVisibleRange(r);
+
+    // Resize
+    const ro = new ResizeObserver(() => {
+      priceChart.applyOptions({ width: priceDiv.clientWidth, height: priceDiv.clientHeight });
+      macdChart.applyOptions({ width: macdDiv.clientWidth, height: macdDiv.clientHeight });
+    });
+    ro.observe(priceDiv);
+    ro.observe(macdDiv);
   }
 
   // Modal
@@ -266,17 +274,22 @@
     overlay.style.display = "flex";
     document.body.style.overflow = "hidden";
 
-    const modalTV = document.getElementById("modalTV");
-    modalTV.innerHTML = "";
-    const id = "tv_modal_" + item.name;
-    modalTV.id = id;
-
-    makeTVWidget(id, TV_MAP[item.name] || "FX:EURUSD");
+    if (item.ok){
+      buildLockedCharts(
+        document.getElementById("modalPrice"),
+        document.getElementById("modalMacd"),
+        item,
+        true
+      );
+    } else {
+      document.getElementById("modalPrice").innerHTML = "";
+      document.getElementById("modalMacd").innerHTML = "";
+    }
   }
-
   function closeModal(){
     document.getElementById("modalOverlay").style.display = "none";
-    document.getElementById("modalTV").innerHTML = "";
+    document.getElementById("modalPrice").innerHTML = "";
+    document.getElementById("modalMacd").innerHTML = "";
     document.body.style.overflow = "auto";
   }
   function overlayClick(e){
@@ -302,11 +315,13 @@
       grid.innerHTML = "";
 
       for (const item of items){
-        const tvId = `tv_${item.name}`;
+        const priceId = `price_${item.name}`;
+        const macdId  = `macd_${item.name}`;
 
         grid.insertAdjacentHTML("beforeend", `
           <div class="${cardClass(item)}">
             <button class="expandBtn" title="Büyüt" aria-label="Büyüt" data-name="${item.name}">⤢</button>
+
             <div class="row">
               <div class="title">${item.name}</div>
               ${pill(item)}
@@ -324,12 +339,21 @@
               <div class="muted">${item.error || ""}</div>
             `}
 
-            <div class="tvBox" id="${tvId}"></div>
+            <div class="chartArea">
+              <div class="priceChart" id="${priceId}"></div>
+              <div class="macdChart" id="${macdId}"></div>
+            </div>
           </div>
         `);
 
-        const tvSymbol = TV_MAP[item.name] || "FX:EURUSD";
-        makeTVWidget(tvId, tvSymbol);
+        if (item.ok){
+          buildLockedCharts(
+            document.getElementById(priceId),
+            document.getElementById(macdId),
+            item,
+            false
+          );
+        }
       }
 
       for (const btn of document.querySelectorAll(".expandBtn")){
@@ -337,6 +361,7 @@
         const found = items.find(x => x.name === nm);
         btn.onclick = () => openModal(found);
       }
+
     } catch (e) {
       grid.innerHTML = `<div style="color:#b91c1c">Hata: ${e}</div>`;
     }
