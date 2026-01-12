@@ -4,8 +4,10 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>FTMO – D1 EMA Çarşaf</title>
+  <script src="https://s3.tradingview.com/tv.js"></script>
+
   <style>
-    html, body { height: 100%; }
+    html, body { height:100%; }
     body { font-family: Arial, sans-serif; margin: 18px; }
 
     .top { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; }
@@ -54,12 +56,10 @@
       cursor:pointer;
       display:flex; align-items:center; justify-content:center;
       font-size:16px;
+      z-index:2;
     }
 
-    .chartArea { margin-top:10px; flex:1; min-height:0; display:flex; flex-direction:column; gap:8px; }
-    .priceChart { flex:1; min-height:0; border:1px solid #eee; border-radius:12px; overflow:hidden; }
-    .macdChart { height:100px; border:1px solid #eee; border-radius:12px; overflow:hidden; }
-    .stochChart { height:100px; border:1px solid #eee; border-radius:12px; overflow:hidden; }
+    .tvBox { flex:1; min-height:0; margin-top:10px; border:1px solid #eee; border-radius:12px; overflow:hidden; }
 
     /* FULLSCREEN MODAL */
     .modalOverlay{
@@ -74,20 +74,15 @@
       width:100vw;
       height:100vh;
       background:#fff;
-      border-radius:0;
       overflow:hidden;
       display:flex;
       flex-direction:column;
-      border:none;
     }
     .modalHeader{
       padding:10px 12px;
       display:flex; justify-content:space-between; align-items:center;
       border-bottom:1px solid #eee;
-      position: sticky;
-      top: 0;
       background: #fff;
-      z-index: 5;
     }
     .modalClose{
       width:40px; height:36px;
@@ -98,20 +93,16 @@
       font-size:18px;
     }
     .modalBody{ padding:12px; flex:1; min-height:0; display:flex; flex-direction:column; gap:10px; }
-    .modalCharts{ flex:1; min-height:0; display:flex; flex-direction:column; gap:10px; }
-    .modalPrice{ flex:1; min-height:0; border:1px solid #eee; border-radius:0; overflow:hidden; }
-    .modalMacd{ height:22vh; min-height:140px; border:1px solid #eee; border-radius:0; overflow:hidden; }
-    .modalStoch{ height:22vh; min-height:140px; border:1px solid #eee; border-radius:0; overflow:hidden; }
-  </style>
+    .modalChart{ flex:1; min-height:0; border:1px solid #eee; border-radius:12px; overflow:hidden; }
 
-  <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+  </style>
 </head>
 
 <body>
   <div class="top">
     <div>
       <div style="font-size:20px;font-weight:900;">FTMO – D1 EMA Çarşaf</div>
-      <div class="muted">Mum + EMA20/50/100/200 (etiket yok) + MACD hist + Stochastic(5,3,3) + LuxAlgo SR/Breaks. ⤢ ile tam ekran. (Zoom kapalı, sadece kaydırma)</div>
+      <div class="muted">Önceki stabil sürüm: TradingView mini chart + MACD (histogram). Volume kapalı. 4 kart = ekran dolu. ⤢ ile tam ekran.</div>
     </div>
     <div>
       <div class="pager" id="pager"></div>
@@ -132,17 +123,39 @@
       </div>
       <div class="modalBody">
         <div class="muted" id="modalInfo"></div>
-        <div class="modalCharts">
-          <div class="modalPrice" id="modalPrice"></div>
-          <div class="modalMacd" id="modalMacd"></div>
-          <div class="modalStoch" id="modalStoch"></div>
-        </div>
+        <div class="modalChart" id="modalTV"></div>
       </div>
     </div>
   </div>
 
 <script>
+  // ✅ Backend API'n (ema hesaplayıp sheet veriyor)
   const API_BASE = "https://ftmo-carsaf.onrender.com";
+
+  // ✅ TradingView symbol mapping (widget)
+  const TV_MAP = {
+    "EURUSD": "FX:EURUSD",
+    "USDJPY": "FX:USDJPY",
+    "GBPUSD": "FX:GBPUSD",
+    "AUDUSD": "FX:AUDUSD",
+    "USDCAD": "FX:USDCAD",
+    "USDCHF": "FX:USDCHF",
+    "EURJPY": "FX:EURJPY",
+    "EURGBP": "FX:EURGBP",
+    "GBPJPY": "FX:GBPJPY",
+    "AUDJPY": "FX:AUDJPY",
+    "XAUUSD": "OANDA:XAUUSD",
+    "XAGUSD": "OANDA:XAGUSD",
+    "USOIL":  "TVC:USOIL",
+    "US500":  "TVC:SPX",
+    "NAS100": "TVC:NDX",
+    "US30":   "TVC:DJI",
+    "GER40":  "XETR:DAX",
+    "UK100":  "TVC:UKX",
+    "JP225":  "TVC:NI225",
+    "AUS200": "TVC:AU200",
+  };
+
   const PAGES = [
     ["EURUSD","USDJPY","GBPUSD","AUDUSD"],
     ["USDCAD","USDCHF","EURJPY","EURGBP"],
@@ -183,210 +196,32 @@
     pager.appendChild(r);
   }
 
-  // ✅ zoom kapalı + pan açık
-  function createChartCommon(container, { hideRightScale = false, showTime = false } = {}){
-    return LightweightCharts.createChart(container, {
-      layout: { background: { type: 'solid', color: '#ffffff' }, textColor: '#222' },
-      rightPriceScale: { borderVisible: false, visible: !hideRightScale },
-      leftPriceScale: { visible: false },
-      timeScale: { borderVisible: false, visible: showTime },
-      grid: { vertLines: { visible: false }, horzLines: { visible: false } },
-      crosshair: { mode: 1 },
+  function makeTVWidget(containerId, tvSymbol){
+    // TradingView AdvancedChart widget
+    new TradingView.widget({
+      autosize: true,
+      symbol: tvSymbol,
+      interval: "D",
+      timezone: "Etc/UTC",
+      theme: "light",
+      style: "1",                // candles
+      locale: "tr",
+      enable_publishing: false,
+      hide_side_toolbar: true,
+      hide_top_toolbar: true,
+      hide_legend: false,
+      allow_symbol_change: false,
+      save_image: false,
+      studies_overrides: {},
 
-      handleScroll: {
-        mouseWheel: true,
-        pressedMouseMove: true,
-        horzTouchDrag: true,
-        vertTouchDrag: false,
-      },
-      handleScale: {
-        mouseWheel: false,
-        pinch: false,
-        axisPressedMouseMove: false,
-      },
+      // ✅ Volume kapalı: kendi overlay'i kapatamıyoruz ama "studies" içine volume eklemiyoruz.
+      // ✅ MACD ekli: histogram görünür
+      studies: [
+        "MACD@tv-basicstudies"
+      ],
+
+      container_id: containerId,
     });
-  }
-
-  function mapMacdColors(macdHistArr){
-    if (!macdHistArr || macdHistArr.length === 0) return [];
-    const GREEN_STRONG = "#089981";
-    const GREEN_WEAK   = "#9fd9c9";
-    const RED_STRONG   = "#f23645";
-    const RED_WEAK     = "#f5a3ab";
-
-    return macdHistArr.map((p, i, arr) => {
-      const prev = i > 0 ? arr[i - 1].value : p.value;
-      const strengthening = Math.abs(p.value) >= Math.abs(prev);
-      const color = (p.value >= 0)
-        ? (strengthening ? GREEN_STRONG : GREEN_WEAK)
-        : (strengthening ? RED_STRONG : RED_WEAK);
-      return { time: p.time, value: p.value, color };
-    });
-  }
-
-  function markerShape(m){
-    if (m.shape === "arrowUp") return "arrowUp";
-    if (m.shape === "arrowDown") return "arrowDown";
-    return "circle";
-  }
-  function markerPos(m){
-    if (m.position === "aboveBar") return "aboveBar";
-    if (m.position === "belowBar") return "belowBar";
-    return "inBar";
-  }
-  function markerColor(m){
-    return m.color === "green" ? "#16a34a" : "#dc2626";
-  }
-
-  // ✅ Senkron: Range + Crosshair
-  function syncAll(priceChart, macdChart, stochChart, candleSeries, histSeries, kSeries){
-    let syncingRange = false;
-
-    const bindRange = (source, targets) => {
-      source.timeScale().subscribeVisibleTimeRangeChange(() => {
-        if (syncingRange) return;
-        const r = source.timeScale().getVisibleRange();
-        if (!r) return;
-        syncingRange = true;
-        targets.forEach(t => t.timeScale().setVisibleRange(r));
-        syncingRange = false;
-      });
-    };
-
-    bindRange(priceChart, [macdChart, stochChart]);
-    bindRange(macdChart,  [priceChart, stochChart]);
-    bindRange(stochChart, [priceChart, macdChart]);
-
-    let syncingCross = false;
-
-    const bindCross = (sourceChart, sourceSeries, targets) => {
-      sourceChart.subscribeCrosshairMove((param) => {
-        if (syncingCross) return;
-        syncingCross = true;
-
-        if (!param || !param.time){
-          targets.forEach(t => t.chart.clearCrosshairPosition());
-          syncingCross = false;
-          return;
-        }
-
-        const price = param.seriesPrices?.get(sourceSeries);
-        const priceValue =
-          (price && typeof price === "object") ? (price.close ?? price.value ?? 0) :
-          (typeof price === "number" ? price : 0);
-
-        targets.forEach(t => {
-          t.chart.setCrosshairPosition(priceValue, param.time, t.series);
-        });
-
-        syncingCross = false;
-      });
-    };
-
-    bindCross(priceChart, candleSeries, [
-      { chart: macdChart,  series: histSeries },
-      { chart: stochChart, series: kSeries }
-    ]);
-
-    bindCross(macdChart, histSeries, [
-      { chart: priceChart, series: candleSeries },
-      { chart: stochChart, series: kSeries }
-    ]);
-
-    bindCross(stochChart, kSeries, [
-      { chart: priceChart, series: candleSeries },
-      { chart: macdChart,  series: histSeries }
-    ]);
-  }
-
-  function buildChart(priceDiv, macdDiv, stochDiv, item, compactTimeAxis){
-    priceDiv.innerHTML = "";
-    macdDiv.innerHTML = "";
-    stochDiv.innerHTML = "";
-
-    const priceChart = createChartCommon(priceDiv, { hideRightScale:false, showTime: !compactTimeAxis });
-    const candleSeries = priceChart.addSeries(LightweightCharts.CandlestickSeries, {});
-    candleSeries.setData(item.candles || []);
-
-    const emaCommon = {
-      lineWidth: 1,
-      priceLineVisible: false,
-      lastValueVisible: false,
-    };
-    const ema20  = priceChart.addSeries(LightweightCharts.LineSeries, emaCommon);
-    const ema50  = priceChart.addSeries(LightweightCharts.LineSeries, emaCommon);
-    const ema100 = priceChart.addSeries(LightweightCharts.LineSeries, emaCommon);
-    const ema200 = priceChart.addSeries(LightweightCharts.LineSeries, emaCommon);
-
-    ema20.setData(item.ema_lines?.ema20 || []);
-    ema50.setData(item.ema_lines?.ema50 || []);
-    ema100.setData(item.ema_lines?.ema100 || []);
-    ema200.setData(item.ema_lines?.ema200 || []);
-
-    // SR segments
-    const segs = item.sr?.segments || [];
-    for (const s of segs){
-      const isRes = s.kind === "resistance";
-      const color = isRes ? "#FF0000" : "#233dee";
-      const segSeries = priceChart.addSeries(LightweightCharts.LineSeries, {
-        lineWidth: 3,
-        color,
-        priceLineVisible: false,
-        lastValueVisible: false,
-      });
-      segSeries.setData([{ time: s.t1, value: s.price }, { time: s.t2, value: s.price }]);
-    }
-
-    // Markers
-    const mk = (item.sr?.markers || []).map(m => ({
-      time: m.time,
-      position: markerPos(m),
-      color: markerColor(m),
-      shape: markerShape(m),
-      text: m.text
-    }));
-    if (typeof LightweightCharts.createSeriesMarkers === "function") {
-      LightweightCharts.createSeriesMarkers(candleSeries, mk);
-    }
-
-    priceChart.timeScale().fitContent();
-
-    // MACD
-    const macdChart = createChartCommon(macdDiv, { hideRightScale:true, showTime: !compactTimeAxis });
-    const histSeries = macdChart.addSeries(LightweightCharts.HistogramSeries, {});
-    histSeries.setData(mapMacdColors(item.macd_hist));
-    macdChart.timeScale().fitContent();
-
-    // STOCH
-    const stochChart = createChartCommon(stochDiv, { hideRightScale:true, showTime: !compactTimeAxis });
-    const kSeries = stochChart.addSeries(LightweightCharts.LineSeries, {
-      lineWidth: 1,
-      color: "#2563eb",
-      priceLineVisible: false,
-      lastValueVisible: false,
-    });
-    const dSeries = stochChart.addSeries(LightweightCharts.LineSeries, {
-      lineWidth: 1,
-      color: "#f59e0b",
-      priceLineVisible: false,
-      lastValueVisible: false,
-    });
-    kSeries.setData(item.stoch?.k || []);
-    dSeries.setData(item.stoch?.d || []);
-    stochChart.timeScale().fitContent();
-
-    // ✅ sync
-    syncAll(priceChart, macdChart, stochChart, candleSeries, histSeries, kSeries);
-
-    // Resize
-    const ro = new ResizeObserver(() => {
-      priceChart.applyOptions({ width: priceDiv.clientWidth, height: priceDiv.clientHeight });
-      macdChart.applyOptions({ width: macdDiv.clientWidth, height: macdDiv.clientHeight });
-      stochChart.applyOptions({ width: stochDiv.clientWidth, height: stochDiv.clientHeight });
-    });
-    ro.observe(priceDiv);
-    ro.observe(macdDiv);
-    ro.observe(stochDiv);
   }
 
   // Modal
@@ -396,34 +231,29 @@
     document.getElementById("modalInfo").innerHTML = item.ok ? `
       ${pill(item)} | Close: <b>${fmt(item.last_close)}</b>
       | EMA20: ${fmt(item.ema20)} • EMA50: ${fmt(item.ema50)} • EMA100: ${fmt(item.ema100)} • EMA200: ${fmt(item.ema200)}
-      | Stoch(5,3,3)
     ` : `<span style="color:#b91c1c;">Veri/Hata:</span> ${item.error || ""}`;
 
     const overlay = document.getElementById("modalOverlay");
     overlay.style.display = "flex";
     document.body.style.overflow = "hidden";
 
-    buildChart(
-      document.getElementById("modalPrice"),
-      document.getElementById("modalMacd"),
-      document.getElementById("modalStoch"),
-      item,
-      false
-    );
+    const modalTV = document.getElementById("modalTV");
+    modalTV.innerHTML = "";
+    const id = "tv_modal_" + item.name;
+    modalTV.id = id;
+
+    makeTVWidget(id, TV_MAP[item.name] || "FX:EURUSD");
   }
+
   function closeModal(){
     document.getElementById("modalOverlay").style.display = "none";
-    document.getElementById("modalPrice").innerHTML = "";
-    document.getElementById("modalMacd").innerHTML = "";
-    document.getElementById("modalStoch").innerHTML = "";
+    document.getElementById("modalTV").innerHTML = "";
     document.body.style.overflow = "auto";
   }
   function overlayClick(e){
     if (e.target && e.target.id === "modalOverlay") closeModal();
   }
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") closeModal();
-  });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
 
   async function loadData(pageIndex){
     currentPage = pageIndex;
@@ -443,9 +273,7 @@
       grid.innerHTML = "";
 
       for (const item of items){
-        const priceId = `price_${item.name}`;
-        const macdId  = `macd_${item.name}`;
-        const stochId = `stoch_${item.name}`;
+        const tvId = `tv_${item.name}`;
 
         grid.insertAdjacentHTML("beforeend", `
           <div class="${cardClass(item)}">
@@ -461,30 +289,19 @@
                 <div>Close: <b>${fmt(item.last_close)}</b></div>
                 <div class="muted">EMA20: ${fmt(item.ema20)} | EMA50: ${fmt(item.ema50)}</div>
                 <div class="muted">EMA100: ${fmt(item.ema100)} | EMA200: ${fmt(item.ema200)}</div>
-                <div class="muted">Stoch(5,3,3)</div>
               </div>
             ` : `
               <div style="margin-top:8px;color:#b91c1c">Veri/Hata</div>
               <div class="muted">${item.error || ""}</div>
             `}
 
-            <div class="chartArea">
-              <div class="priceChart" id="${priceId}"></div>
-              <div class="macdChart" id="${macdId}"></div>
-              <div class="stochChart" id="${stochId}"></div>
-            </div>
+            <div class="tvBox" id="${tvId}"></div>
           </div>
         `);
 
-        if (item.ok){
-          buildChart(
-            document.getElementById(priceId),
-            document.getElementById(macdId),
-            document.getElementById(stochId),
-            item,
-            true
-          );
-        }
+        // ✅ widget
+        const tvSymbol = TV_MAP[item.name] || "FX:EURUSD";
+        makeTVWidget(tvId, tvSymbol);
       }
 
       for (const btn of document.querySelectorAll(".expandBtn")){
