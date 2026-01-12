@@ -7,12 +7,16 @@ from fastapi.middleware.cors import CORSMiddleware
 TWELVEDATA_KEY = os.getenv("TWELVEDATA_KEY", "")
 BASE_URL = "https://api.twelvedata.com/time_series"
 
-# LuxAlgo default input'ları
+# LuxAlgo SR varsayılanları
 LEFT_BARS = int(os.getenv("SR_LEFT_BARS", "15"))
 RIGHT_BARS = int(os.getenv("SR_RIGHT_BARS", "15"))
 VOLUME_THRESH = float(os.getenv("SR_VOLUME_THRESH", "20"))
 
-# 20 enstrüman
+# Stochastic ayarları (resimdeki)
+STOCH_K_LEN = int(os.getenv("STOCH_K_LEN", "5"))
+STOCH_K_SMOOTH = int(os.getenv("STOCH_K_SMOOTH", "3"))
+STOCH_D_SMOOTH = int(os.getenv("STOCH_D_SMOOTH", "3"))
+
 SYMBOLS = [
     {"name":"EURUSD","symbol":"EUR/USD","type":"forex"},
     {"name":"USDJPY","symbol":"USD/JPY","type":"forex"},
@@ -36,7 +40,6 @@ SYMBOLS = [
     {"name":"AUS200","symbol":"ASX200","type":"index"},
 ]
 
-# 5 sayfa x 4
 PAGES = [
     ["EURUSD","USDJPY","GBPUSD","AUDUSD"],
     ["USDCAD","USDCHF","EURJPY","EURGBP"],
@@ -60,6 +63,31 @@ def ema_series(values, period: int):
     for i in range(period, len(values)):
         e = values[i] * k + e * (1 - k)
         out[i] = e
+    return out
+
+def sma_series(values, period: int):
+    out = [None] * len(values)
+    if period <= 0:
+        return out
+    s = 0.0
+    count = 0
+    q = []
+    for i, v in enumerate(values):
+        if v is None:
+            q.append(None)
+        else:
+            q.append(float(v))
+        # maintain window
+        if q[-1] is not None:
+            s += q[-1]
+            count += 1
+        if len(q) > period:
+            old = q.pop(0)
+            if old is not None:
+                s -= old
+                count -= 1
+        if len(q) == period and count == period:
+            out[i] = s / period
     return out
 
 def macd_hist(values, fast=12, slow=26, signal=9):
@@ -92,6 +120,31 @@ def macd_hist(values, fast=12, slow=26, signal=9):
         else:
             hist[i] = macd_line[i] - signal_line[i]
     return hist
+
+def stochastic_kd(opens, highs, lows, closes, k_len=5, k_smooth=3, d_smooth=3):
+    """
+    TradingView stoch mantığı:
+    rawK = 100*(close-LL)/(HH-LL)
+    K = SMA(rawK, k_smooth)
+    D = SMA(K, d_smooth)
+    """
+    n = len(closes)
+    rawK = [None] * n
+
+    for i in range(n):
+        if i < k_len - 1:
+            continue
+        hh = max(highs[i - k_len + 1: i + 1])
+        ll = min(lows[i - k_len + 1: i + 1])
+        denom = hh - ll
+        if denom == 0:
+            rawK[i] = 0.0
+        else:
+            rawK[i] = 100.0 * (closes[i] - ll) / denom
+
+    k_line = sma_series(rawK, k_smooth)
+    d_line = sma_series(k_line, d_smooth)
+    return k_line, d_line
 
 def fetch_daily_ohlc(symbol: str, bars: int = 900):
     if not TWELVEDATA_KEY:
@@ -184,8 +237,6 @@ def forward_fill(series):
     return out
 
 def compute_volume_osc(volumes):
-    # LuxAlgo: short=ema(volume,5), long=ema(volume,10), osc=100*(short-long)/long
-    # Volume yoksa (forex) -> osc 0
     vals = [v if v is not None else 0.0 for v in volumes]
     short = ema_series(vals, 5)
     long = ema_series(vals, 10)
@@ -208,10 +259,6 @@ def crossover(prev_a, a, prev_b, b):
     return prev_a <= prev_b and a > b
 
 def sr_segments(candles, pivot_vals, kind, max_segments=25):
-    """
-    Pine plot: change(pivot) ? na : color  ==> segment segment çiz
-    Biz: pivot değiştikçe yeni segment başlatıyoruz.
-    """
     times = [c["time"] for c in candles]
     segs = []
     current = None
@@ -231,20 +278,9 @@ def sr_segments(candles, pivot_vals, kind, max_segments=25):
     if current is not None and start_t is not None:
         segs.append({"t1": start_t, "t2": times[-1], "price": current, "kind": kind})
 
-    # son segmentler
     return segs[-max_segments:]
 
 def compute_break_markers(candles, opens, highs, lows, closes, sup_ff, res_ff, osc, vol_thresh):
-    """
-    LuxAlgo Pine:
-    plotshape(toggleBreaks and crossunder(close,lowUsePivot) and not (open - close < high - open) and osc > volumeThresh, text='B', red labeldown abovebar)
-    plotshape(toggleBreaks and crossover(close,highUsePivot ) and not(open - low > close - open) and osc > volumeThresh, text='B', green labelup belowbar)
-
-    Bull Wick:
-    crossover(close,highUsePivot) and open - low > close - open  => green labelup belowbar text 'Bull Wick'
-    Bear Wick:
-    crossunder(close,lowUsePivot) and open - close < high - open => red labeldown abovebar text 'Bear Wick'
-    """
     markers = []
     for i in range(1, len(candles)):
         t = candles[i]["time"]
@@ -260,54 +296,24 @@ def compute_break_markers(candles, opens, highs, lows, closes, sup_ff, res_ff, o
         h = highs[i]
         l = lows[i]
 
-        # osc filtresi
         ok_vol = osc[i] > vol_thresh
 
-        # Break down
         cond_cross_dn = crossunder(prev_close, close, prev_sup, sup)
-        cond_not_wick = not ((o - close) < (h - o))  # not(open-close < high-open)
+        cond_not_wick = not ((o - close) < (h - o))
         if cond_cross_dn and cond_not_wick and ok_vol:
-            markers.append({
-                "time": t,
-                "position": "aboveBar",
-                "color": "red",
-                "text": "B",
-                "shape": "arrowDown"
-            })
+            markers.append({"time": t, "position": "aboveBar", "color": "red", "text": "B", "shape": "arrowDown"})
 
-        # Break up
         cond_cross_up = crossover(prev_close, close, prev_res, res)
-        cond_not_wick2 = not ((o - l) > (close - o))  # not(open-low > close-open)
+        cond_not_wick2 = not ((o - l) > (close - o))
         if cond_cross_up and cond_not_wick2 and ok_vol:
-            markers.append({
-                "time": t,
-                "position": "belowBar",
-                "color": "green",
-                "text": "B",
-                "shape": "arrowUp"
-            })
+            markers.append({"time": t, "position": "belowBar", "color": "green", "text": "B", "shape": "arrowUp"})
 
-        # Bull wick
         if cond_cross_up and ((o - l) > (close - o)):
-            markers.append({
-                "time": t,
-                "position": "belowBar",
-                "color": "green",
-                "text": "Bull Wick",
-                "shape": "circle"
-            })
+            markers.append({"time": t, "position": "belowBar", "color": "green", "text": "Bull Wick", "shape": "circle"})
 
-        # Bear wick
         if cond_cross_dn and ((o - close) < (h - o)):
-            markers.append({
-                "time": t,
-                "position": "aboveBar",
-                "color": "red",
-                "text": "Bear Wick",
-                "shape": "circle"
-            })
+            markers.append({"time": t, "position": "aboveBar", "color": "red", "text": "Bear Wick", "shape": "circle"})
 
-    # son 150 marker ile sınırla
     return markers[-150:]
 
 def get_items_for_page(page_index: int):
@@ -338,7 +344,6 @@ def watchlist_page(page: int):
         try:
             candles, opens, highs, lows, closes, volumes = fetch_daily_ohlc(it["symbol"], bars=900)
 
-            # EMA çizgileri
             e20  = ema_series(closes, 20)
             e50  = ema_series(closes, 50)
             e100 = ema_series(closes, 100)
@@ -351,23 +356,22 @@ def watchlist_page(page: int):
             last_e200 = next(x for x in reversed(e200) if x is not None)
             sheet = classify_sheet(last_e20, last_e50, last_e100, last_e200)
 
-            # MACD hist
             hist = macd_hist(closes)
 
-            # SR (LuxAlgo pivot)
+            # Stochastic
+            stoch_k, stoch_d = stochastic_kd(opens, highs, lows, closes, STOCH_K_LEN, STOCH_K_SMOOTH, STOCH_D_SMOOTH)
+
+            # SR
             ph = pivot_high(highs, LEFT_BARS, RIGHT_BARS)
             pl = pivot_low(lows, LEFT_BARS, RIGHT_BARS)
-
-            # LuxAlgo: fixnan(pivot[1]) gibi son pivotu taşır
-            # Biz: pivot değerlerini forward-fill ederek seviyeyi sürekli tutuyoruz
             res_ff = forward_fill(ph)
             sup_ff = forward_fill(pl)
-
             osc = compute_volume_osc(volumes)
 
-            # son N bar
             n = 220
             candles2 = candles[-n:]
+            min_t = candles2[0]["time"]
+            max_t = candles2[-1]["time"]
 
             def pack_line(arr):
                 out = []
@@ -381,14 +385,21 @@ def watchlist_page(page: int):
                     out.append({"time": candles[i]["time"], "value": v})
                 return out
 
-            # SR segmentleri (son 25'er tane)
-            # segmentleri de son n bar'a kırp (t1/t2 clamp)
+            def pack_stoch(arr):
+                out = []
+                start = len(candles) - n
+                for i in range(start, len(candles)):
+                    if i < 0:
+                        continue
+                    v = arr[i]
+                    if v is None:
+                        continue
+                    out.append({"time": candles[i]["time"], "value": float(v)})
+                return out
+
             seg_res = sr_segments(candles, res_ff, "resistance", max_segments=30)
             seg_sup = sr_segments(candles, sup_ff, "support", max_segments=30)
 
-            # segmentleri son n bar içine alın
-            min_t = candles2[0]["time"]
-            max_t = candles2[-1]["time"]
             def clamp_segs(segs):
                 out = []
                 for s in segs:
@@ -398,14 +409,9 @@ def watchlist_page(page: int):
                         out.append({"t1": t1, "t2": t2, "price": s["price"], "kind": s["kind"]})
                 return out
 
-            seg_res2 = clamp_segs(seg_res)
-            seg_sup2 = clamp_segs(seg_sup)
-
             markers = compute_break_markers(
-                candles[-n:],  # sadece son n
-                opens[-n:], highs[-n:], lows[-n:], closes[-n:],
-                sup_ff[-n:], res_ff[-n:],
-                osc[-n:], VOLUME_THRESH
+                candles[-n:], opens[-n:], highs[-n:], lows[-n:], closes[-n:],
+                sup_ff[-n:], res_ff[-n:], osc[-n:], VOLUME_THRESH
             )
 
             row.update({
@@ -427,12 +433,19 @@ def watchlist_page(page: int):
                     if i >= 0 and hist[i] is not None
                 ],
 
-                # LuxAlgo SR
+                "stoch": {
+                    "kLen": STOCH_K_LEN,
+                    "kSmooth": STOCH_K_SMOOTH,
+                    "dSmooth": STOCH_D_SMOOTH,
+                    "k": pack_stoch(stoch_k),
+                    "d": pack_stoch(stoch_d),
+                },
+
                 "sr": {
                     "leftBars": LEFT_BARS,
                     "rightBars": RIGHT_BARS,
                     "volumeThresh": VOLUME_THRESH,
-                    "segments": seg_res2 + seg_sup2,  # birlikte
+                    "segments": clamp_segs(seg_res) + clamp_segs(seg_sup),
                     "markers": markers
                 }
             })
