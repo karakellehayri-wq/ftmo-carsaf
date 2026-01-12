@@ -6,7 +6,6 @@ from fastapi.middleware.cors import CORSMiddleware
 
 TWELVEDATA_KEY = os.getenv("TWELVEDATA_KEY", "")
 
-# 20 enstrüman (name alanları FRONTEND sayfa listeleriyle birebir aynı olmalı)
 SYMBOLS = [
     {"name":"EURUSD","symbol":"EUR/USD","type":"forex"},
     {"name":"USDJPY","symbol":"USD/JPY","type":"forex"},
@@ -32,11 +31,13 @@ SYMBOLS = [
     {"name":"AUS200","symbol":"ASX200","type":"index"},
 ]
 
-# 3 sayfa (8 + 8 + 4). Buradaki isimler SYMBOLS["name"] ile aynı olmalı
+# ✅ 20 enstrüman → 5 sayfa x 4
 PAGES = [
-    ["EURUSD","USDJPY","GBPUSD","AUDUSD","USDCAD","USDCHF","EURJPY","EURGBP"],
-    ["GBPJPY","AUDJPY","XAUUSD","XAGUSD","USOIL","US500","NAS100","US30"],
-    ["GER40","UK100","JP225","AUS200"]
+    ["EURUSD","USDJPY","GBPUSD","AUDUSD"],
+    ["USDCAD","USDCHF","EURJPY","EURGBP"],
+    ["GBPJPY","AUDJPY","XAUUSD","XAGUSD"],
+    ["USOIL","US500","NAS100","US30"],
+    ["GER40","UK100","JP225","AUS200"],
 ]
 
 BASE_URL = "https://api.twelvedata.com/time_series"
@@ -52,17 +53,10 @@ def fetch_daily_closes(symbol, bars=260):
     if not TWELVEDATA_KEY:
         raise RuntimeError("TWELVEDATA_KEY is missing in environment variables.")
 
-    params = {
-        "symbol": symbol,
-        "interval": "1day",
-        "outputsize": bars,
-        "apikey": TWELVEDATA_KEY
-    }
+    params = {"symbol": symbol, "interval": "1day", "outputsize": bars, "apikey": TWELVEDATA_KEY}
     r = requests.get(BASE_URL, params=params, timeout=25)
     data = r.json()
-
     if "values" not in data:
-        # TwelveData limit / invalid symbol vb.
         raise RuntimeError(str(data))
 
     values = list(reversed(data["values"]))  # oldest -> newest
@@ -96,25 +90,20 @@ def get_items_for_page(page_index: int):
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"],
 )
 
 @app.get("/api/watchlist/{page}")
 def watchlist_page(page: int):
-    # page = 1,2,3
-    if page not in (1, 2, 3):
-        raise HTTPException(status_code=400, detail="page must be 1, 2 or 3")
+    max_page = len(PAGES)
+    if page < 1 or page > max_page:
+        raise HTTPException(status_code=400, detail=f"page must be 1..{max_page}")
 
     page_index = page - 1
     now = datetime.now(timezone.utc).isoformat()
     items = []
 
-    page_symbols = get_items_for_page(page_index)
-
-    for it in page_symbols:
+    for it in get_items_for_page(page_index):
         row = {"name": it["name"], "symbol": it["symbol"], "type": it["type"], "updated_utc": now}
         try:
             closes = fetch_daily_closes(it["symbol"])
