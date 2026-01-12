@@ -13,14 +13,14 @@
       gap:12px; flex-wrap:wrap;
     }
 
-    /* ✅ 4 kart ekranı eşit doldursun: 2x2 */
+    /* 4 kart ekranı eşit doldursun: 2x2 */
     .grid {
       display:grid;
       grid-template-columns: repeat(2, 1fr);
       grid-auto-rows: 1fr;
       gap: 14px;
       margin-top: 14px;
-      height: calc(100vh - 120px);  /* header yüksekliğine göre */
+      height: calc(100vh - 120px);
     }
 
     .card {
@@ -32,6 +32,7 @@
       flex-direction:column;
       overflow:hidden;
       min-height: 0;
+      position: relative; /* buton için */
     }
 
     .green { border-color:#22c55e; box-shadow: 0 0 0 2px rgba(34,197,94,.15) inset; }
@@ -55,16 +56,102 @@
       overflow:hidden;
       flex: 1;
       min-height: 0;
+      background:#fff;
     }
     iframe { display:block; width:100%; height:100%; border:0; }
+
+    /* Kart içi büyütme butonu */
+    .expandBtn{
+      position:absolute;
+      top:10px;
+      right:10px;
+      width:34px;
+      height:34px;
+      border-radius:10px;
+      border:1px solid #ddd;
+      background:#fff;
+      cursor:pointer;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-size:16px;
+      line-height:1;
+      opacity:0.95;
+    }
+    .expandBtn:hover{ opacity:1; }
+
+    /* Modal (popup) */
+    .modalOverlay{
+      position:fixed;
+      inset:0;
+      background:rgba(0,0,0,0.55);
+      display:none;
+      align-items:center;
+      justify-content:center;
+      padding:16px;
+      z-index:9999;
+    }
+    .modal{
+      width:min(1200px, 98vw);
+      height:min(720px, 96vh);
+      background:#fff;
+      border-radius:16px;
+      overflow:hidden;
+      display:flex;
+      flex-direction:column;
+      border:1px solid #ddd;
+    }
+    .modalHeader{
+      padding:10px 12px;
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:12px;
+      border-bottom:1px solid #eee;
+    }
+    .modalTitle{ font-weight:900; }
+    .modalClose{
+      width:40px;
+      height:36px;
+      border-radius:12px;
+      border:1px solid #ddd;
+      background:#fff;
+      cursor:pointer;
+      font-size:18px;
+    }
+    .modalBody{
+      padding:12px;
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+      flex:1;
+      min-height:0;
+    }
+    .modalInfo{
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:10px;
+      flex-wrap:wrap;
+    }
+    .modalChart{
+      flex:1;
+      min-height:0;
+      border:1px solid #eee;
+      border-radius:14px;
+      overflow:hidden;
+    }
+    .modalChart iframe{ width:100%; height:100%; }
+    .linkRow a{ color:#444; font-size:12px; }
   </style>
 </head>
+
 <body>
   <div class="top">
     <div>
       <div style="font-size:20px;font-weight:900;">FTMO – D1 EMA Çarşaf</div>
       <div class="muted">
-        4 kart = ekranı tam doldurur. TradingView mum + <b>MACD histogram</b> (çizgiler gizlenmeye çalışılır) + volume kapalı.
+        4 kart = ekranı tam doldurur. TradingView mum + MACD + volume kapalı. Her kartta ⤢ ile büyüt.
       </div>
     </div>
 
@@ -76,11 +163,30 @@
 
   <div class="grid" id="grid">Yükleniyor...</div>
 
+  <!-- Modal -->
+  <div class="modalOverlay" id="modalOverlay" onclick="overlayClick(event)">
+    <div class="modal" role="dialog" aria-modal="true" aria-label="Grafik">
+      <div class="modalHeader">
+        <div>
+          <div class="modalTitle" id="modalTitle">—</div>
+          <div class="muted" id="modalSub">—</div>
+        </div>
+        <button class="modalClose" onclick="closeModal()" aria-label="Kapat">✕</button>
+      </div>
+
+      <div class="modalBody">
+        <div class="modalInfo" id="modalInfo"></div>
+        <div class="modalChart" id="modalChart"></div>
+        <div class="linkRow" id="modalLink"></div>
+      </div>
+    </div>
+  </div>
+
 <script>
   // 🔗 Backend URL
   let API_BASE = "https://ftmo-carsaf.onrender.com";
 
-  // ✅ 5 sayfa x 4 enstrüman (backend ile aynı sırada)
+  // ✅ 5 sayfa x 4 enstrüman (backend ile aynı)
   const PAGES = [
     ["EURUSD","USDJPY","GBPUSD","AUDUSD"],
     ["USDCAD","USDCHF","EURJPY","EURGBP"],
@@ -134,9 +240,7 @@
     return n.toFixed(2);
   }
 
-  // ✅ TradingView mini embed:
-  // - studies: MACDHist (histogram-only denemesi)
-  // - hide_volume: 1 (volume kapalı)
+  // TradingView embed: MACD açık, volume kapalı
   function tvEmbedUrl(name){
     const sym = TV_SYMBOL[name];
     if (!sym) return null;
@@ -149,13 +253,8 @@
       hide_top_toolbar: "1",
       hide_side_toolbar: "1",
       allow_symbol_change: "0",
-
-      // Histogram-only denemesi:
       studies: "MACD@tv-basicstudies",
-
-      // Volume kapat:
       hide_volume: "1",
-
       withdateranges: "0",
       saveimage: "0",
       details: "0",
@@ -173,16 +272,10 @@
     return `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(sym)}`;
   }
 
-  function chartHtml(name){
+  function chartIframeHtml(name){
     const url = tvEmbedUrl(name);
-    const link = tvChartLink(name);
     if (!url) return `<div class="muted">Mini chart yok</div>`;
-    return `
-      <div class="chartWrap">
-        <iframe src="${url}" loading="lazy"></iframe>
-      </div>
-      ${link ? `<div style="margin-top:6px"><a class="muted" href="${link}" target="_blank" rel="noreferrer">TradingView’de aç</a></div>` : ""}
-    `;
+    return `<iframe src="${url}" loading="lazy"></iframe>`;
   }
 
   function renderPager(){
@@ -203,6 +296,55 @@
     pager.appendChild(r);
   }
 
+  // Modal kontrol
+  function openModal(item){
+    const overlay = document.getElementById("modalOverlay");
+    const title = document.getElementById("modalTitle");
+    const sub = document.getElementById("modalSub");
+    const info = document.getElementById("modalInfo");
+    const chart = document.getElementById("modalChart");
+    const link = document.getElementById("modalLink");
+
+    title.textContent = item.name;
+    sub.textContent = `${item.symbol} • ${item.type}`;
+
+    info.innerHTML = item.ok ? `
+      <div>
+        <div><b>${pill(item)}</b></div>
+        <div class="muted">Close: ${fmt(item.last_close)}</div>
+        <div class="muted">EMA20: ${fmt(item.ema20)} | EMA50: ${fmt(item.ema50)}</div>
+        <div class="muted">EMA100: ${fmt(item.ema100)} | EMA200: ${fmt(item.ema200)}</div>
+      </div>
+    ` : `
+      <div style="color:#b91c1c;">Veri/Hata</div>
+      <div class="muted">${item.error || item.reason || ""}</div>
+    `;
+
+    chart.innerHTML = chartIframeHtml(item.name);
+
+    const tvLink = tvChartLink(item.name);
+    link.innerHTML = tvLink ? `<a href="${tvLink}" target="_blank" rel="noreferrer">TradingView’de aç</a>` : "";
+
+    overlay.style.display = "flex";
+    document.body.style.overflow = "hidden";
+  }
+
+  function closeModal(){
+    const overlay = document.getElementById("modalOverlay");
+    overlay.style.display = "none";
+    document.getElementById("modalChart").innerHTML = "";
+    document.body.style.overflow = "auto";
+  }
+
+  function overlayClick(e){
+    // Sadece arka siyaha tıklayınca kapansın
+    if (e.target && e.target.id === "modalOverlay") closeModal();
+  }
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeModal();
+  });
+
   async function loadData(pageIndex){
     currentPage = pageIndex;
     renderPager();
@@ -211,7 +353,6 @@
     grid.textContent = "Yükleniyor...";
 
     try {
-      // backend page 1..N
       const res = await fetch(`${API_BASE}/api/watchlist/${currentPage + 1}`);
       const data = await res.json();
 
@@ -225,6 +366,8 @@
       for (const item of items){
         grid.insertAdjacentHTML("beforeend", `
           <div class="${cardClass(item)}">
+            <button class="expandBtn" title="Büyüt" aria-label="Büyüt" data-name="${item.name}">⤢</button>
+
             <div class="row">
               <div class="title">${item.name}</div>
               ${pill(item)}
@@ -242,9 +385,26 @@
               <div class="muted">${item.error || item.reason || ""}</div>
             `}
 
-            ${chartHtml(item.name)}
+            <div class="chartWrap">
+              ${chartIframeHtml(item.name)}
+            </div>
+
+            <div style="margin-top:6px">
+              ${tvChartLink(item.name) ? `<a class="muted" href="${tvChartLink(item.name)}" target="_blank" rel="noreferrer">TradingView’de aç</a>` : ""}
+            </div>
           </div>
         `);
+      }
+
+      // Butonlara tıklama eventlerini bağla
+      // (HTML string ile bastığımız için sonra bağlamak lazım)
+      const cards = Array.from(document.querySelectorAll(".card"));
+      for (const card of cards){
+        const btn = card.querySelector(".expandBtn");
+        if (!btn) continue;
+        const nm = btn.getAttribute("data-name");
+        const found = items.find(x => x.name === nm);
+        btn.onclick = () => openModal(found);
       }
 
       if (!grid.innerHTML.trim()) {
