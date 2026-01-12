@@ -278,7 +278,7 @@
       shape: markerShape(m),
       text: m.text
     }));
-    candleSeries.setMarkers(mk);
+    LightweightCharts.createSeriesMarkers(candleSeries, mk);
 
     priceChart.timeScale().fitContent();
 
