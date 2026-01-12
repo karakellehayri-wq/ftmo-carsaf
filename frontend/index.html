@@ -106,7 +106,7 @@
   <div class="top">
     <div>
       <div style="font-size:20px;font-weight:900;">FTMO – D1 EMA Çarşaf</div>
-      <div class="muted">Mum + EMA20/50/100/200 çizgileri (grafikte). ⤢ ile tam ekran.</div>
+      <div class="muted">Mum + EMA20/50/100/200 çizgileri (ince). MACD histogram kırmızı/yeşil. ⤢ ile tam ekran.</div>
     </div>
     <div>
       <div class="pager" id="pager"></div>
@@ -189,20 +189,29 @@
     });
   }
 
+  // ✅ MACD histogram renk map (pozitif=yeşil, negatif=kırmızı)
+  function mapMacdColors(macdHistArr){
+    return (macdHistArr || []).map(p => ({
+      time: p.time,
+      value: p.value,
+      color: (p.value >= 0) ? "#16a34a" : "#dc2626"  // yeşil / kırmızı
+    }));
+  }
+
   function buildChart(priceDiv, macdDiv, item, compactTimeAxis){
     priceDiv.innerHTML = "";
     macdDiv.innerHTML = "";
 
     const priceChart = createChartCommon(priceDiv);
 
-    // ✅ v5 API: chart.addSeries(...)
     const candleSeries = priceChart.addSeries(LightweightCharts.CandlestickSeries, {});
     candleSeries.setData(item.candles || []);
 
-    const ema20  = priceChart.addSeries(LightweightCharts.LineSeries, { lineWidth: 2 });
-    const ema50  = priceChart.addSeries(LightweightCharts.LineSeries, { lineWidth: 2 });
-    const ema100 = priceChart.addSeries(LightweightCharts.LineSeries, { lineWidth: 2 });
-    const ema200 = priceChart.addSeries(LightweightCharts.LineSeries, { lineWidth: 2 });
+    // ✅ EMA çizgileri daha ince: lineWidth 1
+    const ema20  = priceChart.addSeries(LightweightCharts.LineSeries, { lineWidth: 1 });
+    const ema50  = priceChart.addSeries(LightweightCharts.LineSeries, { lineWidth: 1 });
+    const ema100 = priceChart.addSeries(LightweightCharts.LineSeries, { lineWidth: 1 });
+    const ema200 = priceChart.addSeries(LightweightCharts.LineSeries, { lineWidth: 1 });
 
     ema20.setData(item.ema_lines?.ema20 || []);
     ema50.setData(item.ema_lines?.ema50 || []);
@@ -219,8 +228,10 @@
       crosshair: { mode: 0 },
     });
 
+    // ✅ Histogram standard kırmızı/yeşil
     const histSeries = macdChart.addSeries(LightweightCharts.HistogramSeries, {});
-    histSeries.setData((item.macd_hist || []).map(x => ({ time: x.time, value: x.value })));
+    histSeries.setData(mapMacdColors(item.macd_hist));
+
     macdChart.timeScale().fitContent();
 
     const ro = new ResizeObserver(() => {
