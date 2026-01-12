@@ -5,23 +5,58 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>FTMO – D1 EMA Çarşaf</title>
   <style>
+    html, body { height: 100%; }
     body { font-family: Arial, sans-serif; margin: 18px; }
-    .top { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; }
-    .grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; margin-top: 14px; }
-    .card { border:2px solid #ddd; border-radius:14px; padding:12px; background:#fff; }
+
+    .top {
+      display:flex; justify-content:space-between; align-items:flex-start;
+      gap:12px; flex-wrap:wrap;
+    }
+
+    /* ✅ 4 kart ekranı eşit doldursun: 2x2 */
+    .grid {
+      display:grid;
+      grid-template-columns: repeat(2, 1fr);
+      grid-auto-rows: 1fr;
+      gap: 14px;
+      margin-top: 14px;
+      height: calc(100vh - 120px);  /* header yüksekliğine göre */
+    }
+
+    .card {
+      border:2px solid #ddd;
+      border-radius:14px;
+      padding:12px;
+      background:#fff;
+      display:flex;
+      flex-direction:column;
+      overflow:hidden;
+      min-height: 0;
+    }
+
     .green { border-color:#22c55e; box-shadow: 0 0 0 2px rgba(34,197,94,.15) inset; }
     .title { font-weight:800; font-size:16px; }
     .muted { color:#666; font-size:12px; }
     .pill { display:inline-block; padding:3px 8px; border-radius:999px; border:1px solid #ddd; font-size:12px; }
     .pill-long { border-color:#22c55e; }
     .pill-short { border-color:#ef4444; }
+
     button { padding:8px 12px; border-radius:10px; border:1px solid #ddd; background:#fff; cursor:pointer; }
     .pager { display:flex; gap:8px; margin-top:8px; flex-wrap:wrap; }
     .active { font-weight:900; }
 
-    .chartWrap { margin-top:10px; border:1px solid #eee; border-radius:12px; overflow:hidden; }
-    iframe { display:block; width:100%; height:220px; border:0; }
     .row { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+
+    /* chart alanı kartın kalanını doldursun */
+    .chartWrap {
+      margin-top:10px;
+      border:1px solid #eee;
+      border-radius:12px;
+      overflow:hidden;
+      flex: 1;
+      min-height: 0;
+    }
+    iframe { display:block; width:100%; height:100%; border:0; }
   </style>
 </head>
 <body>
@@ -29,17 +64,12 @@
     <div>
       <div style="font-size:20px;font-weight:900;">FTMO – D1 EMA Çarşaf</div>
       <div class="muted">
-        EMA20/50/100/200 sıralıysa kart yeşil border olur. Kart içinde TradingView mum + <b>MACD</b> vardır. (Volume kapalı)
+        4 kart = ekranı tam doldurur. TradingView mum + <b>MACD histogram</b> (çizgiler gizlenmeye çalışılır) + volume kapalı.
       </div>
     </div>
 
     <div>
-      <div class="pager">
-        <button id="p1" class="active" onclick="loadData(0)">Sayfa 1</button>
-        <button id="p2" onclick="loadData(1)">Sayfa 2</button>
-        <button id="p3" onclick="loadData(2)">Sayfa 3</button>
-        <button onclick="loadData(currentPage)">Yenile</button>
-      </div>
+      <div class="pager" id="pager"></div>
       <div class="muted" id="updated"></div>
     </div>
   </div>
@@ -50,11 +80,13 @@
   // 🔗 Backend URL
   let API_BASE = "https://ftmo-carsaf.onrender.com";
 
-  // Sayfalar (8 + 8 + 4)
+  // ✅ 5 sayfa x 4 enstrüman (backend ile aynı sırada)
   const PAGES = [
-    ["EURUSD","USDJPY","GBPUSD","AUDUSD","USDCAD","USDCHF","EURJPY","EURGBP"],
-    ["GBPJPY","AUDJPY","XAUUSD","XAGUSD","USOIL","US500","NAS100","US30"],
-    ["GER40","UK100","JP225","AUS200"]
+    ["EURUSD","USDJPY","GBPUSD","AUDUSD"],
+    ["USDCAD","USDCHF","EURJPY","EURGBP"],
+    ["GBPJPY","AUDJPY","XAUUSD","XAGUSD"],
+    ["USOIL","US500","NAS100","US30"],
+    ["GER40","UK100","JP225","AUS200"],
   ];
 
   let currentPage = 0;
@@ -74,6 +106,7 @@
 
     "XAUUSD": "OANDA:XAUUSD",
     "XAGUSD": "OANDA:XAGUSD",
+
     "USOIL": "TVC:USOIL",
     "US500": "TVC:SPX",
     "NAS100": "TVC:NDX",
@@ -84,7 +117,26 @@
     "AUS200": "TVC:AU200"
   };
 
-  // TradingView mini chart + MACD (Volume kapalı)
+  function pill(item){
+    if (item.sheet === "LONG") return `<span class="pill pill-long">ÇARŞAF LONG</span>`;
+    if (item.sheet === "SHORT") return `<span class="pill pill-short">ÇARŞAF SHORT</span>`;
+    return `<span class="pill">NONE</span>`;
+  }
+
+  function cardClass(item){
+    if (item.sheet === "LONG") return "card green";
+    if (item.sheet === "SHORT") return "card green";
+    return "card";
+  }
+
+  function fmt(n){
+    if (typeof n !== "number") return "-";
+    return n.toFixed(2);
+  }
+
+  // ✅ TradingView mini embed:
+  // - studies: MACDHist (histogram-only denemesi)
+  // - hide_volume: 1 (volume kapalı)
   function tvEmbedUrl(name){
     const sym = TV_SYMBOL[name];
     if (!sym) return null;
@@ -92,13 +144,18 @@
     const params = new URLSearchParams({
       symbol: sym,
       interval: "D",
-      style: "1",                 // candlestick
+      style: "1",
       theme: "light",
       hide_top_toolbar: "1",
       hide_side_toolbar: "1",
       allow_symbol_change: "0",
-      studies: "MACD@tv-basicstudies", // ✅ MACD
-      hide_volume: "1",            // ✅ Volume kapalı
+
+      // Histogram-only denemesi:
+      studies: "MACDHist@tv-basicstudies",
+
+      // Volume kapat:
+      hide_volume: "1",
+
       withdateranges: "0",
       saveimage: "0",
       details: "0",
@@ -116,49 +173,45 @@
     return `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(sym)}`;
   }
 
-  function setActive(pageIndex){
-    document.getElementById("p1").classList.toggle("active", pageIndex === 0);
-    document.getElementById("p2").classList.toggle("active", pageIndex === 1);
-    document.getElementById("p3").classList.toggle("active", pageIndex === 2);
-  }
-
-  function cardClass(item){
-    if (item.sheet === "LONG") return "card green";
-    if (item.sheet === "SHORT") return "card green"; // istersen short kırmızı border
-    return "card";
-  }
-
-  function pill(item){
-    if (item.sheet === "LONG") return `<span class="pill pill-long">ÇARŞAF LONG</span>`;
-    if (item.sheet === "SHORT") return `<span class="pill pill-short">ÇARŞAF SHORT</span>`;
-    return `<span class="pill">NONE</span>`;
-  }
-
-  function fmt(n){
-    if (typeof n !== "number") return "-";
-    return n.toFixed(2);
-  }
-
   function chartHtml(name){
     const url = tvEmbedUrl(name);
-    if (!url) return `<div class="muted">Mini chart yok</div>`;
     const link = tvChartLink(name);
+    if (!url) return `<div class="muted">Mini chart yok</div>`;
     return `
       <div class="chartWrap">
         <iframe src="${url}" loading="lazy"></iframe>
       </div>
-      ${link ? `<div style="margin-top:6px"><a class="muted" href="${link}" target="_blank">TradingView’de aç</a></div>` : ""}
+      ${link ? `<div style="margin-top:6px"><a class="muted" href="${link}" target="_blank" rel="noreferrer">TradingView’de aç</a></div>` : ""}
     `;
+  }
+
+  function renderPager(){
+    const pager = document.getElementById("pager");
+    pager.innerHTML = "";
+
+    for (let i = 0; i < PAGES.length; i++){
+      const b = document.createElement("button");
+      b.textContent = `Sayfa ${i+1}`;
+      if (i === currentPage) b.classList.add("active");
+      b.onclick = () => loadData(i);
+      pager.appendChild(b);
+    }
+
+    const r = document.createElement("button");
+    r.textContent = "Yenile";
+    r.onclick = () => loadData(currentPage);
+    pager.appendChild(r);
   }
 
   async function loadData(pageIndex){
     currentPage = pageIndex;
-    setActive(currentPage);
+    renderPager();
 
     const grid = document.getElementById("grid");
     grid.textContent = "Yükleniyor...";
 
     try {
+      // backend page 1..N
       const res = await fetch(`${API_BASE}/api/watchlist/${currentPage + 1}`);
       const data = await res.json();
 
@@ -202,6 +255,7 @@
     }
   }
 
+  renderPager();
   loadData(0);
 </script>
 </body>
