@@ -3,11 +3,11 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>FTMO Çarşaf Takip</title>
+  <title>FTMO – D1 EMA Çarşaf</title>
   <style>
     body { font-family: Arial, sans-serif; margin: 18px; }
     .top { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; }
-    .grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-top: 14px; }
+    .grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; margin-top: 14px; }
     .card { border:2px solid #ddd; border-radius:14px; padding:12px; background:#fff; }
     .green { border-color:#22c55e; box-shadow: 0 0 0 2px rgba(34,197,94,.15) inset; }
     .title { font-weight:800; font-size:16px; }
@@ -20,7 +20,7 @@
     .active { font-weight:900; }
 
     .chartWrap { margin-top:10px; border:1px solid #eee; border-radius:12px; overflow:hidden; }
-    iframe { display:block; width:100%; height:180px; border:0; }
+    iframe { display:block; width:100%; height:220px; border:0; }
     .row { display:flex; justify-content:space-between; align-items:center; gap:8px; }
   </style>
 </head>
@@ -28,7 +28,10 @@
   <div class="top">
     <div>
       <div style="font-size:20px;font-weight:900;">FTMO – D1 EMA Çarşaf</div>
-      <div class="muted">EMA20/50/100/200 sıralıysa kart yeşil border olur. Kart içinde TradingView mum mini-chart var.</div>
+      <div class="muted">
+        EMA20/50/100/200 sıralıysa kart yeşil border olur.  
+        Kart içinde TradingView mum + <b>MACD</b> vardır.
+      </div>
     </div>
 
     <div>
@@ -45,10 +48,10 @@
   <div class="grid" id="grid">Yükleniyor...</div>
 
 <script>
-  // ✅ Backend URL
+  // 🔗 Backend URL
   let API_BASE = "https://ftmo-carsaf.onrender.com";
 
-  // 3 sayfa (8 + 8 + 4)
+  // Sayfalar (8 + 8 + 4)
   const PAGES = [
     ["EURUSD","USDJPY","GBPUSD","AUDUSD","USDCAD","USDCHF","EURJPY","EURGBP"],
     ["GBPJPY","AUDJPY","XAUUSD","XAGUSD","USOIL","US500","NAS100","US30"],
@@ -57,8 +60,7 @@
 
   let currentPage = 0;
 
-  // TradingView sembol eşlemesi (mini chart için)
-  // Çalışmayan olursa 1-2 taneyi sonradan düzeltiriz.
+  // TradingView sembol eşlemesi
   const TV_SYMBOL = {
     "EURUSD": "FX:EURUSD",
     "USDJPY": "FX:USDJPY",
@@ -73,8 +75,6 @@
 
     "XAUUSD": "OANDA:XAUUSD",
     "XAGUSD": "OANDA:XAGUSD",
-
-    // Oil/Indices: bazen broker’a göre değişir. Şimdilik en yaygın TVC kullanıyoruz.
     "USOIL": "TVC:USOIL",
     "US500": "TVC:SPX",
     "NAS100": "TVC:NDX",
@@ -85,21 +85,20 @@
     "AUS200": "TVC:AU200"
   };
 
-  // Mini chart iframe URL üretici
+  // TradingView mini chart + MACD
   function tvEmbedUrl(name){
     const sym = TV_SYMBOL[name];
     if (!sym) return null;
 
-    // interval=D (Daily), style=1 (candles), hide toolbar/ideas, minimal
     const params = new URLSearchParams({
       symbol: sym,
       interval: "D",
-      style: "1",
+      style: "1",              // candlestick
       theme: "light",
       hide_top_toolbar: "1",
       hide_side_toolbar: "1",
       allow_symbol_change: "0",
-      studies: "",
+      studies: "MACD@tv-basicstudies", // ✅ MACD
       withdateranges: "0",
       saveimage: "0",
       details: "0",
@@ -125,7 +124,7 @@
 
   function cardClass(item){
     if (item.sheet === "LONG") return "card green";
-    if (item.sheet === "SHORT") return "card green"; // istersen short için kırmızı border da yaparız
+    if (item.sheet === "SHORT") return "card green"; // istersen kırmızı yaparız
     return "card";
   }
 
@@ -142,14 +141,13 @@
 
   function chartHtml(name){
     const url = tvEmbedUrl(name);
-    if (!url) return `<div class="muted">Mini chart yok (sembol eşleşmedi)</div>`;
+    if (!url) return `<div class="muted">Mini chart yok</div>`;
     const link = tvChartLink(name);
-    const linkHtml = link ? `<a class="muted" href="${link}" target="_blank" rel="noreferrer">TradingView’de aç</a>` : "";
     return `
       <div class="chartWrap">
         <iframe src="${url}" loading="lazy"></iframe>
       </div>
-      <div style="margin-top:6px;">${linkHtml}</div>
+      ${link ? `<div style="margin-top:6px"><a class="muted" href="${link}" target="_blank">TradingView’de aç</a></div>` : ""}
     `;
   }
 
@@ -181,13 +179,13 @@
             <div class="muted">${item.symbol} • ${item.type}</div>
 
             ${item.ok ? `
-              <div style="margin-top:8px;">
+              <div style="margin-top:8px">
                 <div>Close: <b>${fmt(item.last_close)}</b></div>
                 <div class="muted">EMA20: ${fmt(item.ema20)} | EMA50: ${fmt(item.ema50)}</div>
                 <div class="muted">EMA100: ${fmt(item.ema100)} | EMA200: ${fmt(item.ema200)}</div>
               </div>
             ` : `
-              <div style="margin-top:8px;color:#b91c1c;">Veri/Hata</div>
+              <div style="margin-top:8px;color:#b91c1c">Veri/Hata</div>
               <div class="muted">${item.error || item.reason || ""}</div>
             `}
 
@@ -196,11 +194,11 @@
         `);
       }
 
-      if (grid.innerHTML.trim() === "") {
-        grid.textContent = "Bu sayfada gösterilecek veri yok (isimler eşleşmedi).";
+      if (!grid.innerHTML.trim()) {
+        grid.textContent = "Bu sayfada veri yok.";
       }
     } catch (e) {
-      grid.innerHTML = `<div style="color:#b91c1c;">Hata: ${e}</div>`;
+      grid.innerHTML = `<div style="color:#b91c1c">Hata: ${e}</div>`;
     }
   }
 
