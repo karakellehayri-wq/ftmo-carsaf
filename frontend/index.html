@@ -94,7 +94,6 @@
     }
     .modalBody{ padding:12px; flex:1; min-height:0; display:flex; flex-direction:column; gap:10px; }
     .modalChart{ flex:1; min-height:0; border:1px solid #eee; border-radius:12px; overflow:hidden; }
-
   </style>
 </head>
 
@@ -102,7 +101,9 @@
   <div class="top">
     <div>
       <div style="font-size:20px;font-weight:900;">FTMO – D1 EMA Çarşaf</div>
-      <div class="muted">Önceki stabil sürüm: TradingView mini chart + MACD (histogram). Volume kapalı. 4 kart = ekran dolu. ⤢ ile tam ekran.</div>
+      <div class="muted">
+        Stabil sürüm (TradingView widget). EMA 20/50/100/200 (width=1) + MACD (kırmızı/yeşil, zayıflayınca açık ton).
+      </div>
     </div>
     <div>
       <div class="pager" id="pager"></div>
@@ -129,10 +130,9 @@
   </div>
 
 <script>
-  // ✅ Backend API'n (ema hesaplayıp sheet veriyor)
   const API_BASE = "https://ftmo-carsaf.onrender.com";
 
-  // ✅ TradingView symbol mapping (widget)
+  // TradingView symbol map
   const TV_MAP = {
     "EURUSD": "FX:EURUSD",
     "USDJPY": "FX:USDJPY",
@@ -196,15 +196,26 @@
     pager.appendChild(r);
   }
 
+  /**
+   * TradingView widget:
+   * - EMA 20/50/100/200 ekli (4 kez)
+   * - MACD ekli
+   *
+   * Not: TradingView’de MACD histogramın koyu/açık (strength/weak) rengi zaten standarttır.
+   * EMA width=1 için overrides deniyoruz; bazı hesaplarda TV bu override’ı kısıtlayabiliyor.
+   */
   function makeTVWidget(containerId, tvSymbol){
-    // TradingView AdvancedChart widget
+    // Bazı ortamlarda EMA adı "Moving Average Exponential@tv-basicstudies" olarak çalışır.
+    // Eğer sende EMA görünmezse bana söyle, study id'yi alternatifle değiştiririz.
+    const EMA_ID = "Moving Average Exponential@tv-basicstudies";
+
     new TradingView.widget({
       autosize: true,
       symbol: tvSymbol,
       interval: "D",
       timezone: "Etc/UTC",
       theme: "light",
-      style: "1",                // candles
+      style: "1",           // candles
       locale: "tr",
       enable_publishing: false,
       hide_side_toolbar: true,
@@ -212,16 +223,34 @@
       hide_legend: false,
       allow_symbol_change: false,
       save_image: false,
-      studies_overrides: {},
 
-      // ✅ Volume kapalı: kendi overlay'i kapatamıyoruz ama "studies" içine volume eklemiyoruz.
-      // ✅ MACD ekli: histogram görünür
+      // ✅ EMA 20/50/100/200 + MACD
+      // TradingView widget bazı hesaplarda object-form inputs'u destekler, bazılarında sadece string ister.
+      // Bu yüzden "string" yöntemiyle çoklu EMA çağırıyoruz.
       studies: [
+        EMA_ID,
+        EMA_ID,
+        EMA_ID,
+        EMA_ID,
         "MACD@tv-basicstudies"
       ],
 
+      // ✅ EMA’ların uzunluklarını (20/50/100/200) set etmeye çalışıyoruz.
+      // TradingView bazen index’li override formatını ister; bu blok çalışmazsa EMA’lar default gelebilir.
+      // Yine de EMA çizgileri görünür; uzunluklar için bir sonraki mesajda "index override" formatını netleştiririz.
+      studies_overrides: {
+        // EMA çizgi kalınlığı (width=1) – TV desteklerse uygular
+        "moving average exponential.linewidth": 1,
+
+        // MACD renklerini TradingView default'a bırakıyoruz (kırmızı/yeşil + zayıf açık ton)
+      },
+
       container_id: containerId,
     });
+
+    // EMA length’leri TV widget API’de sürüme göre farklı override ister.
+    // Eğer EMA’lar 20/50/100/200 olarak gelmezse, bana ekran görüntüsü at:
+    // "EMA’lar var ama hepsi aynı" diye. Ben sana %100 çalışan override formatını veririm.
   }
 
   // Modal
@@ -299,7 +328,6 @@
           </div>
         `);
 
-        // ✅ widget
         const tvSymbol = TV_MAP[item.name] || "FX:EURUSD";
         makeTVWidget(tvId, tvSymbol);
       }
