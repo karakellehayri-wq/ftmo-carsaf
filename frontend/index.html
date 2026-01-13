@@ -182,7 +182,7 @@
     pager.appendChild(r);
   }
 
-  // ====== Helpers (Math) ======
+  // ====== Math helpers ======
   function ema(values, period){
     const k = 2 / (period + 1);
     let out = [];
@@ -211,7 +211,24 @@
 
   function clamp(x,a,b){ return Math.max(a, Math.min(b, x)); }
 
-  // ====== MACD colors (TV like strong/weak) ======
+  // Convert line data to whitespace-safe (prevents scale collapse)
+  function toLineDataWithWhitespace(candles, arr){
+    if (!arr || arr.length === 0) return [];
+    // already [{time,value}]
+    if (typeof arr[0] === "object" && arr[0] && "time" in arr[0]){
+      return arr.map(p => (p && typeof p.value === "number")
+        ? { time: p.time, value: p.value }
+        : { time: p?.time }
+      );
+    }
+    // number array
+    return arr.map((v, i) => (typeof v === "number"
+      ? { time: candles[i].time, value: v }
+      : { time: candles[i].time }
+    ));
+  }
+
+  // ====== MACD colors (TV strong/weak) ======
   function macdHistColors(hist){
     const GREEN_STRONG = "#089981";
     const GREEN_WEAK   = "#9fd9c9";
@@ -227,7 +244,7 @@
     });
   }
 
-  // ====== LuxAlgo SR computation (Pivot High/Low) ======
+  // ====== LuxAlgo SR ======
   function computePivots(candles, leftBars=15, rightBars=15){
     const n = candles.length;
     const pivH = new Array(n).fill(null);
@@ -252,100 +269,66 @@
   }
 
   function buildSRSeries(candles, pivArr){
-    // horizontal segments like Pine "plot(pivot, change(pivot)?na:pivot, offset=-(rightBars+1))"
-    // Here we just create a step-ish line that holds last pivot value until next pivot.
+    // whitespace totdat er een pivot bestaat => schaal blijft normaal
     let out = [];
     let last = null;
     for (let i=0;i<candles.length;i++){
       if (pivArr[i] != null) last = pivArr[i];
-      out.push({ time: candles[i].time, value: last });
+      if (last == null) out.push({ time: candles[i].time });
+      else out.push({ time: candles[i].time, value: last });
     }
     return out;
   }
 
   function computeVolumeOsc(candles){
-    // Pine: short=ema(volume,5), long=ema(volume,10), osc=100*(short-long)/long
     const vols = candles.map(c => (typeof c.volume === "number" ? c.volume : null));
     if (vols.some(v => v == null)) return null;
     const e5  = ema(vols, 5);
     const e10 = ema(vols, 10);
-    const osc = e5.map((v,i) => {
+    return e5.map((v,i) => {
       const l = e10[i];
       if (v==null || l==null || l===0) return null;
       return 100*(v-l)/l;
     });
-    return osc;
   }
 
   function tryBuildMarkers(candles, pivH, pivL, volumeThresh=20){
-    // We'll approximate Pine conditions if volume exists.
     const osc = computeVolumeOsc(candles);
-    if (!osc) return []; // no volume => no break markers
-
+    if (!osc) return [];
     let markers = [];
-    // We need "usePivot" (fixnan(pivot)[1]) kind of: use last known pivot level.
     let lastH = null, lastL = null;
 
     for (let i=0;i<candles.length;i++){
       if (pivH[i] != null) lastH = pivH[i];
       if (pivL[i] != null) lastL = pivL[i];
-
       if (lastH == null || lastL == null) continue;
 
       const c = candles[i];
       const o = c.open, h = c.high, l = c.low, cl = c.close;
-
       const osci = osc[i];
       if (osci == null || osci <= volumeThresh) continue;
 
-      // crossunder(close,lowUsePivot)
       const prevClose = i>0 ? candles[i-1].close : cl;
       const crossUnder = (prevClose >= lastL && cl < lastL);
       const crossOver  = (prevClose <= lastH && cl > lastH);
 
-      // Not(open-close < high-open) etc (from Pine)
-      const bearBodyOk = !(o - cl < h - o);    // condition used on break under support
-      const bullBodyOk = !(o - l > cl - o);    // condition used on break above resistance
+      const bearBodyOk = !(o - cl < h - o);
+      const bullBodyOk = !(o - l > cl - o);
 
-      // wicks
       const bullWick = (o - l > cl - o);
       const bearWick = (o - cl < h - o);
 
       if (crossUnder && bearBodyOk){
-        markers.push({
-          time: c.time,
-          position: 'aboveBar',
-          color: '#f23645',
-          shape: 'arrowDown',
-          text: 'B'
-        });
+        markers.push({ time: c.time, position:'aboveBar', color:'#f23645', shape:'arrowDown', text:'B' });
       }
       if (crossOver && bullBodyOk){
-        markers.push({
-          time: c.time,
-          position: 'belowBar',
-          color: '#089981',
-          shape: 'arrowUp',
-          text: 'B'
-        });
+        markers.push({ time: c.time, position:'belowBar', color:'#089981', shape:'arrowUp', text:'B' });
       }
       if (crossOver && bullWick){
-        markers.push({
-          time: c.time,
-          position: 'belowBar',
-          color: '#089981',
-          shape: 'circle',
-          text: 'Bull Wick'
-        });
+        markers.push({ time: c.time, position:'belowBar', color:'#089981', shape:'circle', text:'Bull Wick' });
       }
       if (crossUnder && bearWick){
-        markers.push({
-          time: c.time,
-          position: 'aboveBar',
-          color: '#f23645',
-          shape: 'circle',
-          text: 'Bear Wick'
-        });
+        markers.push({ time: c.time, position:'aboveBar', color:'#f23645', shape:'circle', text:'Bear Wick' });
       }
     }
     return markers;
@@ -373,25 +356,28 @@
     const K = kSm.map((v,i)=> v==null ? null : clamp(v,0,100));
     const D = dSm.map((v,i)=> v==null ? null : clamp(v,0,100));
 
-    const outK = [];
-    const outD = [];
+    const outK = [], outD = [];
     for (let i=0;i<n;i++){
-      outK.push({ time: candles[i].time, value: K[i] });
-      outD.push({ time: candles[i].time, value: D[i] });
+      outK.push(K[i]==null ? { time: candles[i].time } : { time: candles[i].time, value: K[i] });
+      outD.push(D[i]==null ? { time: candles[i].time } : { time: candles[i].time, value: D[i] });
     }
     return { outK, outD };
   }
 
-  // ====== Locked charts + perfect sync ======
+  // ====== Charts / Sync ======
   function createLockedChart(container, { showTime=false, hideRightScale=false } = {}){
     return LightweightCharts.createChart(container, {
       layout: { background: { type: 'solid', color: '#ffffff' }, textColor: '#222' },
-      rightPriceScale: { borderVisible: false, visible: !hideRightScale },
+      rightPriceScale: {
+        borderVisible: false,
+        visible: !hideRightScale,
+        scaleMargins: { top: 0.10, bottom: 0.10 } // ademruimte
+      },
       timeScale: {
         borderVisible: false,
         visible: showTime,
         rightOffset: 0,
-        barSpacing: 8,
+        barSpacing: 10,      // candles duidelijker
         fixLeftEdge: true,
         fixRightEdge: true,
       },
@@ -424,27 +410,25 @@
     const macdChart  = createLockedChart(macdDiv,  { showTime, hideRightScale: true });
     const stochChart = createLockedChart(stochDiv, { showTime, hideRightScale: true });
 
-    // ---- Price: candles + EMA ----
+    // Price candles
     const candleSeries = priceChart.addSeries(LightweightCharts.CandlestickSeries, {});
     candleSeries.setData(item.candles || []);
 
-    const emaCommon = {
-      lineWidth: 1,
-      priceLineVisible: false,
-      lastValueVisible: false,
-    };
+    // EMA (width=1) + no dotted/labels
+    const emaCommon = { lineWidth: 1, priceLineVisible: false, lastValueVisible: false, color: "#1e90ff" };
     const e20  = priceChart.addSeries(LightweightCharts.LineSeries, emaCommon);
     const e50  = priceChart.addSeries(LightweightCharts.LineSeries, emaCommon);
     const e100 = priceChart.addSeries(LightweightCharts.LineSeries, emaCommon);
     const e200 = priceChart.addSeries(LightweightCharts.LineSeries, emaCommon);
 
-    e20.setData(item.ema_lines?.ema20 || []);
-    e50.setData(item.ema_lines?.ema50 || []);
-    e100.setData(item.ema_lines?.ema100 || []);
-    e200.setData(item.ema_lines?.ema200 || []);
+    e20.setData(toLineDataWithWhitespace(item.candles, item.ema_lines?.ema20));
+    e50.setData(toLineDataWithWhitespace(item.candles, item.ema_lines?.ema50));
+    e100.setData(toLineDataWithWhitespace(item.candles, item.ema_lines?.ema100));
+    e200.setData(toLineDataWithWhitespace(item.candles, item.ema_lines?.ema200));
 
-    // ---- LuxAlgo SR lines ----
+    // LuxAlgo SR lines (whitespace safe)
     const { pivH, pivL } = computePivots(item.candles || [], 15, 15);
+
     const resSeries = priceChart.addSeries(LightweightCharts.LineSeries, {
       lineWidth: 2,
       priceLineVisible: false,
@@ -461,45 +445,43 @@
     resSeries.setData(buildSRSeries(item.candles || [], pivH));
     supSeries.setData(buildSRSeries(item.candles || [], pivL));
 
-    // markers (only if volume exists)
+    // LuxAlgo markers if volume exists
     const markers = tryBuildMarkers(item.candles || [], pivH, pivL, 20);
     if (typeof candleSeries.setMarkers === "function" && markers.length){
       candleSeries.setMarkers(markers);
     }
 
-    // ---- MACD histogram ----
+    // MACD
     const histSeries = macdChart.addSeries(LightweightCharts.HistogramSeries, {});
     histSeries.setData(macdHistColors(item.macd_hist || []));
 
-    // ---- Stoch(5,3,3) ----
+    // Stoch (5,3,3)
     const { outK, outD } = computeStoch(item.candles || [], 5, 3, 3);
     const kLine = stochChart.addSeries(LightweightCharts.LineSeries, {
       lineWidth: 1,
       priceLineVisible: false,
       lastValueVisible: false,
-      color: "#2563eb", // K
+      color: "#2563eb",
     });
     const dLine = stochChart.addSeries(LightweightCharts.LineSeries, {
       lineWidth: 1,
       priceLineVisible: false,
       lastValueVisible: false,
-      color: "#f59e0b", // D
+      color: "#f59e0b",
     });
     kLine.setData(outK);
     dLine.setData(outD);
 
-    // Fit all and then hard-sync ranges
+    // Fit + sync
     priceChart.timeScale().fitContent();
     const range = priceChart.timeScale().getVisibleRange();
     if (range){
       macdChart.timeScale().setVisibleRange(range);
       stochChart.timeScale().setVisibleRange(range);
     }
-
-    // Keep perfectly aligned forever
     syncTimeScales(priceChart, [macdChart, stochChart]);
 
-    // Resize observer
+    // Resize
     const ro = new ResizeObserver(() => {
       priceChart.applyOptions({ width: priceDiv.clientWidth, height: priceDiv.clientHeight });
       macdChart.applyOptions({ width: macdDiv.clientWidth, height: macdDiv.clientHeight });
@@ -512,8 +494,6 @@
       }
     });
     ro.observe(priceDiv); ro.observe(macdDiv); ro.observe(stochDiv);
-
-    return { priceChart, macdChart, stochChart };
   }
 
   // Modal
