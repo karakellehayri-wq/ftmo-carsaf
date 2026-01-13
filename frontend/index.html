@@ -110,7 +110,7 @@
   <div class="top">
     <div>
       <div style="font-size:20px;font-weight:900;">FTMO – D1 Panel</div>
-      <div class="muted">Candles + EMA20/50/100/200 (width=1) + MACD histogram (TV licht/donker) + Stoch(5,3,3) + LuxAlgo SR. Sync 100% en geen zoom/drag.</div>
+      <div class="muted">Mum + EMA20/50/100/200 (width=1) + MACD histogram (TV açık/koyu) + Stoch(5,3,3) + LuxAlgo SR/Breake. Sync %100, zoom/drag kapalı.</div>
     </div>
     <div>
       <div class="pager" id="pager"></div>
@@ -143,6 +143,7 @@
 <script>
   const API_BASE = "https://ftmo-carsaf.onrender.com";
 
+  // Sayfalar (4 enstrüman)
   const PAGES = [
     ["EURUSD","USDJPY","GBPUSD","AUDUSD"],
     ["USDCAD","USDCHF","EURJPY","EURGBP"],
@@ -151,6 +152,12 @@
     ["GER40","UK100","JP225","AUS200"],
   ];
   let currentPage = 0;
+
+  // LuxAlgo ayarları (Pine ile aynı)
+  const SR_SHOW_BREAKS = true;
+  const SR_LEFT = 15;
+  const SR_RIGHT = 15;
+  const SR_VOL_THRESH = 20;
 
   function pill(item){
     if (item.sheet === "LONG") return `<span class="pill pill-long">ÇARŞAF LONG</span>`;
@@ -211,24 +218,22 @@
 
   function clamp(x,a,b){ return Math.max(a, Math.min(b, x)); }
 
-  // Convert line data to whitespace-safe (prevents scale collapse)
+  // Line data whitespace-safe (scale bozulmasın)
   function toLineDataWithWhitespace(candles, arr){
     if (!arr || arr.length === 0) return [];
-    // already [{time,value}]
     if (typeof arr[0] === "object" && arr[0] && "time" in arr[0]){
       return arr.map(p => (p && typeof p.value === "number")
         ? { time: p.time, value: p.value }
         : { time: p?.time }
       );
     }
-    // number array
     return arr.map((v, i) => (typeof v === "number"
       ? { time: candles[i].time, value: v }
       : { time: candles[i].time }
     ));
   }
 
-  // ====== MACD colors (TV strong/weak) ======
+  // ====== MACD histogram colors (TV strong/weak) ======
   function macdHistColors(hist){
     const GREEN_STRONG = "#089981";
     const GREEN_WEAK   = "#9fd9c9";
@@ -244,43 +249,79 @@
     });
   }
 
-  // ====== LuxAlgo SR ======
-  function computePivots(candles, leftBars=15, rightBars=15){
+  // ====== LuxAlgo SR (Pine v4) ======
+  // Pine:
+  // highUsePivot = fixnan(pivothigh(left,right)[1])
+  // lowUsePivot  = fixnan(pivotlow(left,right)[1])
+  // plot(highUsePivot, change(highUsePivot)?na:color, offset=-(right+1))
+  //
+  // Burada:
+  // 1) Pivot'ları history üzerinde buluyoruz (repaint yok).
+  // 2) [1] için pivot değerini 1 bar gecikmeli kullanıyoruz (shift +1 index).
+  // 3) "change(pivot)?na:..." için: yeni pivot gelene kadar aynı seviyeyi taşıyoruz.
+  function computeLuxAlgoPivots(candles, leftBars=15, rightBars=15){
     const n = candles.length;
-    const pivH = new Array(n).fill(null);
-    const pivL = new Array(n).fill(null);
+    const rawH = new Array(n).fill(null);
+    const rawL = new Array(n).fill(null);
 
     for (let i=leftBars; i<n-rightBars; i++){
       const hi = candles[i].high;
       const lo = candles[i].low;
 
-      let isHigh = true;
-      let isLow  = true;
-
+      let isHigh = true, isLow = true;
       for (let j=i-leftBars; j<=i+rightBars; j++){
         if (candles[j].high > hi) isHigh = false;
         if (candles[j].low  < lo) isLow  = false;
         if (!isHigh && !isLow) break;
       }
-      if (isHigh) pivH[i] = hi;
-      if (isLow)  pivL[i] = lo;
+      if (isHigh) rawH[i] = hi;
+      if (isLow)  rawL[i] = lo;
+    }
+
+    // [1] shift: highUsePivot = pivothigh(...)[1]
+    // => pivot değerini 1 bar gecikmeli kullan.
+    const pivH = new Array(n).fill(null);
+    const pivL = new Array(n).fill(null);
+    for (let i=0;i<n;i++){
+      if (i+1 < n) {
+        pivH[i+1] = rawH[i];
+        pivL[i+1] = rawL[i];
+      }
     }
     return { pivH, pivL };
   }
 
-  function buildSRSeries(candles, pivArr){
-    // whitespace totdat er een pivot bestaat => schaal blijft normaal
+  function buildLuxAlgoPlotSeries(candles, pivArr){
+    // fixnan(): son pivotu taşır
+    // change(pivot)?na:... : pivot değiştiği anda çizgiyi kır (biz whitespace ile kırıyoruz)
     let out = [];
     let last = null;
+    let lastChangedAt = -1;
+
     for (let i=0;i<candles.length;i++){
-      if (pivArr[i] != null) last = pivArr[i];
-      if (last == null) out.push({ time: candles[i].time });
-      else out.push({ time: candles[i].time, value: last });
+      const p = pivArr[i];
+
+      if (p != null && p !== last){
+        last = p;
+        lastChangedAt = i;
+      }
+
+      if (last == null){
+        out.push({ time: candles[i].time }); // whitespace
+      } else {
+        // change(pivot) olduğunda Pine "na" yapıyor => o bar'da çizgi görünmesin
+        if (i === lastChangedAt){
+          out.push({ time: candles[i].time }); // çizgiyi kır
+        } else {
+          out.push({ time: candles[i].time, value: last });
+        }
+      }
     }
     return out;
   }
 
   function computeVolumeOsc(candles){
+    // osc = 100 * (ema(vol,5) - ema(vol,10)) / ema(vol,10)
     const vols = candles.map(c => (typeof c.volume === "number" ? c.volume : null));
     if (vols.some(v => v == null)) return null;
     const e5  = ema(vols, 5);
@@ -292,43 +333,56 @@
     });
   }
 
-  function tryBuildMarkers(candles, pivH, pivL, volumeThresh=20){
+  function tryBuildLuxAlgoMarkers(candles, pivH, pivL, volumeThresh=20){
+    if (!SR_SHOW_BREAKS) return [];
     const osc = computeVolumeOsc(candles);
-    if (!osc) return [];
+    if (!osc) return []; // volume yoksa marker çıkmaz
+
     let markers = [];
-    let lastH = null, lastL = null;
+    let highUsePivot = null;
+    let lowUsePivot = null;
 
     for (let i=0;i<candles.length;i++){
-      if (pivH[i] != null) lastH = pivH[i];
-      if (pivL[i] != null) lastL = pivL[i];
-      if (lastH == null || lastL == null) continue;
+      // fixnan(): son pivotu taşı
+      if (pivH[i] != null) highUsePivot = pivH[i];
+      if (pivL[i] != null) lowUsePivot = pivL[i];
+
+      if (highUsePivot == null || lowUsePivot == null) continue;
 
       const c = candles[i];
       const o = c.open, h = c.high, l = c.low, cl = c.close;
+
       const osci = osc[i];
       if (osci == null || osci <= volumeThresh) continue;
 
       const prevClose = i>0 ? candles[i-1].close : cl;
-      const crossUnder = (prevClose >= lastL && cl < lastL);
-      const crossOver  = (prevClose <= lastH && cl > lastH);
 
-      const bearBodyOk = !(o - cl < h - o);
-      const bullBodyOk = !(o - l > cl - o);
+      // crossunder(close,lowUsePivot)
+      const crossUnder = (prevClose >= lowUsePivot && cl < lowUsePivot);
+      // crossover(close,highUsePivot)
+      const crossOver  = (prevClose <= highUsePivot && cl > highUsePivot);
 
+      // Pine şartları birebir:
+      // not (open - close < high - open)
+      const condBreakDown = !(o - cl < h - o);
+      // not(open - low > close - open)
+      const condBreakUp   = !(o - l > cl - o);
+
+      // Bull/Bear wick:
       const bullWick = (o - l > cl - o);
       const bearWick = (o - cl < h - o);
 
-      if (crossUnder && bearBodyOk){
-        markers.push({ time: c.time, position:'aboveBar', color:'#f23645', shape:'arrowDown', text:'B' });
+      if (crossUnder && condBreakDown){
+        markers.push({ time: c.time, position:'aboveBar', color:'#f23645', shape:'labelDown', text:'B' });
       }
-      if (crossOver && bullBodyOk){
-        markers.push({ time: c.time, position:'belowBar', color:'#089981', shape:'arrowUp', text:'B' });
+      if (crossOver && condBreakUp){
+        markers.push({ time: c.time, position:'belowBar', color:'#089981', shape:'labelUp', text:'B' });
       }
       if (crossOver && bullWick){
-        markers.push({ time: c.time, position:'belowBar', color:'#089981', shape:'circle', text:'Bull Wick' });
+        markers.push({ time: c.time, position:'belowBar', color:'#089981', shape:'labelUp', text:'Bull Wick' });
       }
       if (crossUnder && bearWick){
-        markers.push({ time: c.time, position:'aboveBar', color:'#f23645', shape:'circle', text:'Bear Wick' });
+        markers.push({ time: c.time, position:'aboveBar', color:'#f23645', shape:'labelDown', text:'Bear Wick' });
       }
     }
     return markers;
@@ -371,20 +425,20 @@
       rightPriceScale: {
         borderVisible: false,
         visible: !hideRightScale,
-        scaleMargins: { top: 0.10, bottom: 0.10 } // ademruimte
+        scaleMargins: { top: 0.10, bottom: 0.10 }
       },
       timeScale: {
         borderVisible: false,
         visible: showTime,
         rightOffset: 0,
-        barSpacing: 10,      // candles duidelijker
+        barSpacing: 10,
         fixLeftEdge: true,
         fixRightEdge: true,
       },
       grid: { vertLines: { visible: false }, horzLines: { visible: false } },
       crosshair: { mode: 1 },
 
-      // interaction OFF
+      // interaction OFF (sen istemedin)
       handleScroll: { mouseWheel: false, pressedMouseMove: false, horzTouchDrag: false, vertTouchDrag: false },
       handleScale:  { mouseWheel: false, pinch: false, axisPressedMouseMove: false },
       kineticScroll: { mouse: false, touch: false },
@@ -426,27 +480,27 @@
     e100.setData(toLineDataWithWhitespace(item.candles, item.ema_lines?.ema100));
     e200.setData(toLineDataWithWhitespace(item.candles, item.ema_lines?.ema200));
 
-    // LuxAlgo SR lines (whitespace safe)
-    const { pivH, pivL } = computePivots(item.candles || [], 15, 15);
+    // LuxAlgo SR lines (Pine ile aynı mantık)
+    const { pivH, pivL } = computeLuxAlgoPivots(item.candles || [], SR_LEFT, SR_RIGHT);
 
     const resSeries = priceChart.addSeries(LightweightCharts.LineSeries, {
-      lineWidth: 2,
+      lineWidth: 3,
       priceLineVisible: false,
       lastValueVisible: false,
       color: "#ff0000",
     });
     const supSeries = priceChart.addSeries(LightweightCharts.LineSeries, {
-      lineWidth: 2,
+      lineWidth: 3,
       priceLineVisible: false,
       lastValueVisible: false,
       color: "#233dee",
     });
 
-    resSeries.setData(buildSRSeries(item.candles || [], pivH));
-    supSeries.setData(buildSRSeries(item.candles || [], pivL));
+    resSeries.setData(buildLuxAlgoPlotSeries(item.candles || [], pivH));
+    supSeries.setData(buildLuxAlgoPlotSeries(item.candles || [], pivL));
 
-    // LuxAlgo markers if volume exists
-    const markers = tryBuildMarkers(item.candles || [], pivH, pivL, 20);
+    // LuxAlgo markers
+    const markers = tryBuildLuxAlgoMarkers(item.candles || [], pivH, pivL, SR_VOL_THRESH);
     if (typeof candleSeries.setMarkers === "function" && markers.length){
       candleSeries.setMarkers(markers);
     }
