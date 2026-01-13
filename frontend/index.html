@@ -61,6 +61,7 @@
     .chartArea { margin-top:10px; flex:1; min-height:0; display:flex; flex-direction:column; gap:8px; }
     .priceChart { flex:1; min-height:0; border:1px solid #eee; border-radius:12px; overflow:hidden; }
     .macdChart { height:110px; border:1px solid #eee; border-radius:12px; overflow:hidden; }
+    .stochChart{ height:95px; border:1px solid #eee; border-radius:12px; overflow:hidden; }
 
     /* FULLSCREEN MODAL */
     .modalOverlay{
@@ -75,7 +76,6 @@
       width:100vw;
       height:100vh;
       background:#fff;
-      border-radius:0;
       overflow:hidden;
       display:flex;
       flex-direction:column;
@@ -85,8 +85,6 @@
       padding:10px 12px;
       display:flex; justify-content:space-between; align-items:center;
       border-bottom:1px solid #eee;
-      position: sticky;
-      top: 0;
       background: #fff;
       z-index: 5;
     }
@@ -101,7 +99,8 @@
     .modalBody{ padding:12px; flex:1; min-height:0; display:flex; flex-direction:column; gap:10px; }
     .modalCharts{ flex:1; min-height:0; display:flex; flex-direction:column; gap:10px; }
     .modalPrice{ flex:1; min-height:0; border:1px solid #eee; border-radius:0; overflow:hidden; }
-    .modalMacd{ height:22vh; min-height:160px; border:1px solid #eee; border-radius:0; overflow:hidden; }
+    .modalMacd{ height:22vh; min-height:170px; border:1px solid #eee; border-radius:0; overflow:hidden; }
+    .modalStoch{ height:18vh; min-height:140px; border:1px solid #eee; border-radius:0; overflow:hidden; }
   </style>
 
   <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
@@ -111,7 +110,7 @@
   <div class="top">
     <div>
       <div style="font-size:20px;font-weight:900;">FTMO – D1 Panel</div>
-      <div class="muted">EMA 20/50/100/200 (width=1) + MACD histogram (TV gibi koyu/açık). Kaydırma/zoom tamamen kapalı.</div>
+      <div class="muted">Candles + EMA20/50/100/200 (width=1) + MACD histogram (TV licht/donker) + Stoch(5,3,3) + LuxAlgo SR. Sync 100% en geen zoom/drag.</div>
     </div>
     <div>
       <div class="pager" id="pager"></div>
@@ -135,6 +134,7 @@
         <div class="modalCharts">
           <div class="modalPrice" id="modalPrice"></div>
           <div class="modalMacd" id="modalMacd"></div>
+          <div class="modalStoch" id="modalStoch"></div>
         </div>
       </div>
     </div>
@@ -182,33 +182,43 @@
     pager.appendChild(r);
   }
 
-  // ✅ KAYDIRMA/ZOOM KAPALI chart
-  function createLockedChart(container, { showTime = false, hideRightScale = false } = {}){
-    return LightweightCharts.createChart(container, {
-      layout: { background: { type: 'solid', color: '#ffffff' }, textColor: '#222' },
-      rightPriceScale: { borderVisible: false, visible: !hideRightScale },
-      leftPriceScale: { visible: false },
-      timeScale: { borderVisible: false, visible: showTime },
-      grid: { vertLines: { visible: false }, horzLines: { visible: false } },
-      crosshair: { mode: 1 },
-
-      // ✅ her şeyi kilitle
-      handleScroll: { mouseWheel: false, pressedMouseMove: false, horzTouchDrag: false, vertTouchDrag: false },
-      handleScale:  { mouseWheel: false, pinch: false, axisPressedMouseMove: false },
-      kineticScroll: { mouse: false, touch: false },
-    });
+  // ====== Helpers (Math) ======
+  function ema(values, period){
+    const k = 2 / (period + 1);
+    let out = [];
+    let prev = null;
+    for (let i=0;i<values.length;i++){
+      const v = values[i];
+      if (v == null) { out.push(null); continue; }
+      if (prev == null) prev = v;
+      else prev = v * k + prev * (1 - k);
+      out.push(prev);
+    }
+    return out;
   }
 
-  // ✅ MACD histogram: TV gibi koyu/açık
-  function mapMacdColors(macdHistArr){
-    if (!macdHistArr || macdHistArr.length === 0) return [];
+  function sma(values, period){
+    let out = new Array(values.length).fill(null);
+    let sum = 0;
+    for (let i=0;i<values.length;i++){
+      const v = values[i];
+      sum += v;
+      if (i >= period) sum -= values[i-period];
+      if (i >= period-1) out[i] = sum / period;
+    }
+    return out;
+  }
+
+  function clamp(x,a,b){ return Math.max(a, Math.min(b, x)); }
+
+  // ====== MACD colors (TV like strong/weak) ======
+  function macdHistColors(hist){
     const GREEN_STRONG = "#089981";
     const GREEN_WEAK   = "#9fd9c9";
     const RED_STRONG   = "#f23645";
     const RED_WEAK     = "#f5a3ab";
-
-    return macdHistArr.map((p, i, arr) => {
-      const prev = i > 0 ? arr[i - 1].value : p.value;
+    return hist.map((p, i) => {
+      const prev = i>0 ? hist[i-1].value : p.value;
       const strengthening = Math.abs(p.value) >= Math.abs(prev);
       const color = (p.value >= 0)
         ? (strengthening ? GREEN_STRONG : GREEN_WEAK)
@@ -217,15 +227,207 @@
     });
   }
 
-  function buildLockedCharts(priceDiv, macdDiv, item, showTime){
+  // ====== LuxAlgo SR computation (Pivot High/Low) ======
+  function computePivots(candles, leftBars=15, rightBars=15){
+    const n = candles.length;
+    const pivH = new Array(n).fill(null);
+    const pivL = new Array(n).fill(null);
+
+    for (let i=leftBars; i<n-rightBars; i++){
+      const hi = candles[i].high;
+      const lo = candles[i].low;
+
+      let isHigh = true;
+      let isLow  = true;
+
+      for (let j=i-leftBars; j<=i+rightBars; j++){
+        if (candles[j].high > hi) isHigh = false;
+        if (candles[j].low  < lo) isLow  = false;
+        if (!isHigh && !isLow) break;
+      }
+      if (isHigh) pivH[i] = hi;
+      if (isLow)  pivL[i] = lo;
+    }
+    return { pivH, pivL };
+  }
+
+  function buildSRSeries(candles, pivArr){
+    // horizontal segments like Pine "plot(pivot, change(pivot)?na:pivot, offset=-(rightBars+1))"
+    // Here we just create a step-ish line that holds last pivot value until next pivot.
+    let out = [];
+    let last = null;
+    for (let i=0;i<candles.length;i++){
+      if (pivArr[i] != null) last = pivArr[i];
+      out.push({ time: candles[i].time, value: last });
+    }
+    return out;
+  }
+
+  function computeVolumeOsc(candles){
+    // Pine: short=ema(volume,5), long=ema(volume,10), osc=100*(short-long)/long
+    const vols = candles.map(c => (typeof c.volume === "number" ? c.volume : null));
+    if (vols.some(v => v == null)) return null;
+    const e5  = ema(vols, 5);
+    const e10 = ema(vols, 10);
+    const osc = e5.map((v,i) => {
+      const l = e10[i];
+      if (v==null || l==null || l===0) return null;
+      return 100*(v-l)/l;
+    });
+    return osc;
+  }
+
+  function tryBuildMarkers(candles, pivH, pivL, volumeThresh=20){
+    // We'll approximate Pine conditions if volume exists.
+    const osc = computeVolumeOsc(candles);
+    if (!osc) return []; // no volume => no break markers
+
+    let markers = [];
+    // We need "usePivot" (fixnan(pivot)[1]) kind of: use last known pivot level.
+    let lastH = null, lastL = null;
+
+    for (let i=0;i<candles.length;i++){
+      if (pivH[i] != null) lastH = pivH[i];
+      if (pivL[i] != null) lastL = pivL[i];
+
+      if (lastH == null || lastL == null) continue;
+
+      const c = candles[i];
+      const o = c.open, h = c.high, l = c.low, cl = c.close;
+
+      const osci = osc[i];
+      if (osci == null || osci <= volumeThresh) continue;
+
+      // crossunder(close,lowUsePivot)
+      const prevClose = i>0 ? candles[i-1].close : cl;
+      const crossUnder = (prevClose >= lastL && cl < lastL);
+      const crossOver  = (prevClose <= lastH && cl > lastH);
+
+      // Not(open-close < high-open) etc (from Pine)
+      const bearBodyOk = !(o - cl < h - o);    // condition used on break under support
+      const bullBodyOk = !(o - l > cl - o);    // condition used on break above resistance
+
+      // wicks
+      const bullWick = (o - l > cl - o);
+      const bearWick = (o - cl < h - o);
+
+      if (crossUnder && bearBodyOk){
+        markers.push({
+          time: c.time,
+          position: 'aboveBar',
+          color: '#f23645',
+          shape: 'arrowDown',
+          text: 'B'
+        });
+      }
+      if (crossOver && bullBodyOk){
+        markers.push({
+          time: c.time,
+          position: 'belowBar',
+          color: '#089981',
+          shape: 'arrowUp',
+          text: 'B'
+        });
+      }
+      if (crossOver && bullWick){
+        markers.push({
+          time: c.time,
+          position: 'belowBar',
+          color: '#089981',
+          shape: 'circle',
+          text: 'Bull Wick'
+        });
+      }
+      if (crossUnder && bearWick){
+        markers.push({
+          time: c.time,
+          position: 'aboveBar',
+          color: '#f23645',
+          shape: 'circle',
+          text: 'Bear Wick'
+        });
+      }
+    }
+    return markers;
+  }
+
+  // ====== Stochastic (5,3,3) ======
+  function computeStoch(candles, kLen=5, kSmooth=3, dSmooth=3){
+    const n = candles.length;
+    const rawK = new Array(n).fill(null);
+
+    for (let i=0;i<n;i++){
+      if (i < kLen-1) continue;
+      let hh = -Infinity, ll = Infinity;
+      for (let j=i-kLen+1; j<=i; j++){
+        hh = Math.max(hh, candles[j].high);
+        ll = Math.min(ll, candles[j].low);
+      }
+      const denom = (hh-ll);
+      rawK[i] = denom === 0 ? 0 : 100 * ((candles[i].close - ll) / denom);
+    }
+
+    const kSm = sma(rawK.map(v => v ?? 0), kSmooth).map((v,i)=> rawK[i]==null ? null : v);
+    const dSm = sma(kSm.map(v => v ?? 0), dSmooth).map((v,i)=> kSm[i]==null ? null : v);
+
+    const K = kSm.map((v,i)=> v==null ? null : clamp(v,0,100));
+    const D = dSm.map((v,i)=> v==null ? null : clamp(v,0,100));
+
+    const outK = [];
+    const outD = [];
+    for (let i=0;i<n;i++){
+      outK.push({ time: candles[i].time, value: K[i] });
+      outD.push({ time: candles[i].time, value: D[i] });
+    }
+    return { outK, outD };
+  }
+
+  // ====== Locked charts + perfect sync ======
+  function createLockedChart(container, { showTime=false, hideRightScale=false } = {}){
+    return LightweightCharts.createChart(container, {
+      layout: { background: { type: 'solid', color: '#ffffff' }, textColor: '#222' },
+      rightPriceScale: { borderVisible: false, visible: !hideRightScale },
+      timeScale: {
+        borderVisible: false,
+        visible: showTime,
+        rightOffset: 0,
+        barSpacing: 8,
+        fixLeftEdge: true,
+        fixRightEdge: true,
+      },
+      grid: { vertLines: { visible: false }, horzLines: { visible: false } },
+      crosshair: { mode: 1 },
+
+      // interaction OFF
+      handleScroll: { mouseWheel: false, pressedMouseMove: false, horzTouchDrag: false, vertTouchDrag: false },
+      handleScale:  { mouseWheel: false, pinch: false, axisPressedMouseMove: false },
+      kineticScroll: { mouse: false, touch: false },
+    });
+  }
+
+  function syncTimeScales(master, slaves){
+    let lock = false;
+    master.timeScale().subscribeVisibleTimeRangeChange((range) => {
+      if (lock || !range) return;
+      lock = true;
+      for (const ch of slaves) ch.timeScale().setVisibleRange(range);
+      lock = false;
+    });
+  }
+
+  function buildCharts(priceDiv, macdDiv, stochDiv, item, showTime){
     priceDiv.innerHTML = "";
     macdDiv.innerHTML = "";
+    stochDiv.innerHTML = "";
 
     const priceChart = createLockedChart(priceDiv, { showTime, hideRightScale: false });
+    const macdChart  = createLockedChart(macdDiv,  { showTime, hideRightScale: true });
+    const stochChart = createLockedChart(stochDiv, { showTime, hideRightScale: true });
+
+    // ---- Price: candles + EMA ----
     const candleSeries = priceChart.addSeries(LightweightCharts.CandlestickSeries, {});
     candleSeries.setData(item.candles || []);
 
-    // EMA çizgileri (width=1) + etiketsiz
     const emaCommon = {
       lineWidth: 1,
       priceLineVisible: false,
@@ -241,24 +443,77 @@
     e100.setData(item.ema_lines?.ema100 || []);
     e200.setData(item.ema_lines?.ema200 || []);
 
-    priceChart.timeScale().fitContent();
+    // ---- LuxAlgo SR lines ----
+    const { pivH, pivL } = computePivots(item.candles || [], 15, 15);
+    const resSeries = priceChart.addSeries(LightweightCharts.LineSeries, {
+      lineWidth: 2,
+      priceLineVisible: false,
+      lastValueVisible: false,
+      color: "#ff0000",
+    });
+    const supSeries = priceChart.addSeries(LightweightCharts.LineSeries, {
+      lineWidth: 2,
+      priceLineVisible: false,
+      lastValueVisible: false,
+      color: "#233dee",
+    });
 
-    const macdChart = createLockedChart(macdDiv, { showTime, hideRightScale: true });
+    resSeries.setData(buildSRSeries(item.candles || [], pivH));
+    supSeries.setData(buildSRSeries(item.candles || [], pivL));
+
+    // markers (only if volume exists)
+    const markers = tryBuildMarkers(item.candles || [], pivH, pivL, 20);
+    if (typeof candleSeries.setMarkers === "function" && markers.length){
+      candleSeries.setMarkers(markers);
+    }
+
+    // ---- MACD histogram ----
     const histSeries = macdChart.addSeries(LightweightCharts.HistogramSeries, {});
-    histSeries.setData(mapMacdColors(item.macd_hist || []));
-    macdChart.timeScale().fitContent();
+    histSeries.setData(macdHistColors(item.macd_hist || []));
 
-    // ✅ İkisini aynı range’e eşitle (kullanıcı etkileşimi yok, o yüzden sapma olmaz)
-    const r = priceChart.timeScale().getVisibleRange();
-    if (r) macdChart.timeScale().setVisibleRange(r);
+    // ---- Stoch(5,3,3) ----
+    const { outK, outD } = computeStoch(item.candles || [], 5, 3, 3);
+    const kLine = stochChart.addSeries(LightweightCharts.LineSeries, {
+      lineWidth: 1,
+      priceLineVisible: false,
+      lastValueVisible: false,
+      color: "#2563eb", // K
+    });
+    const dLine = stochChart.addSeries(LightweightCharts.LineSeries, {
+      lineWidth: 1,
+      priceLineVisible: false,
+      lastValueVisible: false,
+      color: "#f59e0b", // D
+    });
+    kLine.setData(outK);
+    dLine.setData(outD);
 
-    // Resize
+    // Fit all and then hard-sync ranges
+    priceChart.timeScale().fitContent();
+    const range = priceChart.timeScale().getVisibleRange();
+    if (range){
+      macdChart.timeScale().setVisibleRange(range);
+      stochChart.timeScale().setVisibleRange(range);
+    }
+
+    // Keep perfectly aligned forever
+    syncTimeScales(priceChart, [macdChart, stochChart]);
+
+    // Resize observer
     const ro = new ResizeObserver(() => {
       priceChart.applyOptions({ width: priceDiv.clientWidth, height: priceDiv.clientHeight });
       macdChart.applyOptions({ width: macdDiv.clientWidth, height: macdDiv.clientHeight });
+      stochChart.applyOptions({ width: stochDiv.clientWidth, height: stochDiv.clientHeight });
+
+      const r2 = priceChart.timeScale().getVisibleRange();
+      if (r2){
+        macdChart.timeScale().setVisibleRange(r2);
+        stochChart.timeScale().setVisibleRange(r2);
+      }
     });
-    ro.observe(priceDiv);
-    ro.observe(macdDiv);
+    ro.observe(priceDiv); ro.observe(macdDiv); ro.observe(stochDiv);
+
+    return { priceChart, macdChart, stochChart };
   }
 
   // Modal
@@ -275,21 +530,24 @@
     document.body.style.overflow = "hidden";
 
     if (item.ok){
-      buildLockedCharts(
+      buildCharts(
         document.getElementById("modalPrice"),
         document.getElementById("modalMacd"),
+        document.getElementById("modalStoch"),
         item,
         true
       );
     } else {
       document.getElementById("modalPrice").innerHTML = "";
       document.getElementById("modalMacd").innerHTML = "";
+      document.getElementById("modalStoch").innerHTML = "";
     }
   }
   function closeModal(){
     document.getElementById("modalOverlay").style.display = "none";
     document.getElementById("modalPrice").innerHTML = "";
     document.getElementById("modalMacd").innerHTML = "";
+    document.getElementById("modalStoch").innerHTML = "";
     document.body.style.overflow = "auto";
   }
   function overlayClick(e){
@@ -317,6 +575,7 @@
       for (const item of items){
         const priceId = `price_${item.name}`;
         const macdId  = `macd_${item.name}`;
+        const stId    = `stoch_${item.name}`;
 
         grid.insertAdjacentHTML("beforeend", `
           <div class="${cardClass(item)}">
@@ -342,14 +601,16 @@
             <div class="chartArea">
               <div class="priceChart" id="${priceId}"></div>
               <div class="macdChart" id="${macdId}"></div>
+              <div class="stochChart" id="${stId}"></div>
             </div>
           </div>
         `);
 
         if (item.ok){
-          buildLockedCharts(
+          buildCharts(
             document.getElementById(priceId),
             document.getElementById(macdId),
+            document.getElementById(stId),
             item,
             false
           );
